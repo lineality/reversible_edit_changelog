@@ -9,6 +9,143 @@ use std::{
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
+/*
+Rules & Policies
+
+# Rust rules:
+- Always best practice.
+- Always extensive doc strings.
+- Always comments.
+- Always cargo tests (where possible).
+- Never remove documentation.
+- Always clear, meaningful, unique names (e.g. variables, functions).
+- Always absolute file paths.
+- Always error handling.
+- Never unsafe code.
+- Never use unwrap.
+
+- Load what is needed when it is needed: Do not ever load a whole file or line, rarely load a whole anything. increment and load only what is required pragmatically. Do not fill 'state' with every possible piece of un-used information. Do not insecurity output information broadly in the case of errors and exceptions.
+
+- Always defensive best practice
+- Always error handling: Every part of code, every process, function, and operation will fail at some point, if only because of cosmic-ray bit-flips (which are common), hardware failure, power-supply failure, adversarial attacks, etc. There must always be fail-safe error handling where production-release-build code handles issues and moves on without panic-crashing ever. Every failure must be handled smoothly: let it fail and move on.
+
+
+Safety, reliability, maintainability, fail-safe, communication-documentation, are the goals: not ideology, aesthetics, popularity, momentum-tradition, bad habits, convenience, nihilism, lazyness, lack of impulse control, etc.
+
+## No third party libraries (or very strictly avoid third party libraries where possible).
+
+## Rule of Thumb, ideals not absolute rules: Follow NASA's 'Power of 10 rules' where possible and sensible (as updated for 2025 and Rust (not narrowly 2006 c for embedded systems):
+1. no unsafe stuff:
+- no recursion
+- no goto
+- no pointers
+- no preprocessor
+
+2. upper bound on all normal-loops, failsafe for all always-loops
+
+3. Pre-allocate all memory (no dynamic memory allocation)
+
+4. Clear function scope and Data Ownership: Part of having a function be 'focused' means knowing if the function is in scope. Functions should be neither swiss-army-knife functions that do too many things, nor scope-less micro-functions that may be doing something that should not be done. Many functions should have a narrow focus and a short length, but definition of actual-project scope functionality must be explicit. Replacing one long clear in-scope function with 50 scope-agnostic generic sub-functions with no clear way of telling if they are in scope or how they interact (e.g. hidden indirect recursion) is unsafe. Rust's ownership and borrowing rules focus on Data ownership and hidden dependencies, making it even less appropriate to scatter borrowing and ownership over a spray of microfunctions purely for the ideology of turning every operation into a microfunction just for the sake of doing so. (See more in rule 9.)
+
+5. Defensive programming: debug-assert, test-assert, prod safely check & handle, not 'assert!' panic
+For production-release code:
+1. check and handle without panic/halt in production
+2. return result (such as Result<T, E>) and smoothly handle errors (not halt-panic stopping the application): no assert!() outside of test-only code
+3. test assert: use #[cfg(test)] assert!() to test production binaries (not in prod)
+4. debug assert: use debug_assert to test debug builds/runs (not in prod)
+5. use defensive programming with recovery of all issues at all times
+- use cargo tests
+- use debug_asserts
+- do not leave assertions in production code.
+- use no-panic error handling
+- use Option
+- use enums and structs
+- check bounds
+- check returns
+- note: a test-flagged assert can test a production release build (whereas debug_assert cannot); cargo test --release
+```
+#[cfg(test)]
+assert!(
+```
+
+e.g.
+# "Assert & Catch-Handle" 3-part System
+
+// template/example for check/assert format
+//    =================================================
+// // Debug-Assert, Test-Asset, Production-Catch-Handle
+//    =================================================
+// This is not included in production builds
+// assert: only when running in a debug-build: will panic
+debug_assert!(
+    INFOBAR_MESSAGE_BUFFER_SIZE > 0,
+    "Info bar buffer must have non-zero capacity"
+);
+// This is not included in production builds
+// assert: only when running cargo test: will panic
+#[cfg(test)]
+assert!(
+    INFOBAR_MESSAGE_BUFFER_SIZE > 0,
+    "Info bar buffer must have non-zero capacity"
+);
+// Catch & Handle without panic in production
+// This IS included in production to safe-catch
+if !INFOBAR_MESSAGE_BUFFER_SIZE == 0 {
+    // state.set_info_bar_message("Config error");
+    return Err(LinesError::GeneralAssertionCatchViolation(
+        "zero buffer size error".into(),
+    ));
+}
+
+
+Avoid heap for error messages and for all things:
+Is heap used for error messages because that is THE best way, the most secure, the most efficient, proper separate of debug testing vs. secure production code?
+Or is heap used because of oversights and apathy: "it's future dev's problem, let's party."
+We can use heap in debug/test modes/builds only.
+Production software must not insecurely output debug diagnostics.
+Debug information must not be included in production builds: "developers accidentally left development code in the software" is a classic error (not a desired design spec) that routinely leads to security and other issues. That is NOT supposed to happen. It is not coherent to insist the open ended heap output 'must' or 'should' be in a production build.
+
+This is central to the question about testing vs. a pedantic ban on conditional compilation; not putting full traceback insecurity into production code is not a different operational process logic tree for process operations.
+
+Just like with the pedantic "all loops being bounded" rule, there is a fundamental exception: always-on loops must be the opposite.
+With conditional compilations: code NEVER to EVER be in production-builds MUST be always "conditionally" excluded. This is not an OS conditional compilation or a hardware conditional compilation. This is an 'unsafe-testing-only or safe-production-code' condition.
+
+Error messages and error outcomes in 'production' 'release' (real-use, not debug/testing) must not ever contain any information that could be a security vulnerability or attack surface. Failing to remove debugging inspection is a major category of security and hygiene problems.
+
+Security: Error messages in production must NOT contain:
+- File paths (can reveal system structure)
+- File contents
+- environment variables
+- user, file, state, data
+- internal implementation details
+- etc.
+
+All debug-prints not for production must be tagged with
+```
+#[cfg(debug_assertions)]
+```
+
+Production output following an error must be managed and defined, not not open to whatever an api or OS-call wants to dump out.
+
+6. Manage ownership and borrowing
+
+7. Manage return values:
+- use null-void return values
+- check non-void-null returns
+
+8. Navigate debugging and testing on the one hand and not-dangerous conditional compilation on the other hand
+
+9. Communicate:
+- use doc strings, use comments,
+- Document use-cases, edge-cases, and policies (These are project specific and cannot be telepathed from generic micro-function code. When a Mars satellite failed because one team used SI-metric units and another team did not, that problem could not have been detected by looking at, and auditing, any individual function in isolation without documentation. Breaking a process into innumerable undocumented micro-functions can make scope and policy impossible to track. To paraphrase Jack Welch: "The most dangerous thing in the world is a flawless operation that should never have been done in the first place.")
+
+10. Use state-less operations when possible:
+- a seemingly invisibly small increase in state often completely destroys projects
+- expanding state destroys projects with unmaintainable over-reach
+
+Vigilance: We should help support users and developers and the people who depend upon maintainable software. Maintainable code supports the future for us all.
+
+ */
 
 /*
  * Uses:
@@ -3569,279 +3706,6 @@ pub fn quarantine_bad_log(target_file: &Path, bad_log_path: &Path, reason: &str)
     }
 }
 
-// timestamps_rust_vanilla.rs
-
-use std::time::{SystemTime, UNIX_EPOCH};
-
-/// Creates a timestamp string specifically for archive file naming
-///
-/// # Purpose
-/// Generates a consistent, sortable timestamp string for archive filenames
-/// that works identically across all platforms (Windows, Linux, macOS).
-///
-/// # Arguments
-/// * `time` - The SystemTime to format (typically SystemTime::now())
-///
-/// # Returns
-/// * `String` - Timestamp in format: "YY_MM_DD_HH_MM_SS"
-///
-/// # Format Specification
-/// - YY: Two-digit year (00-99)
-/// - MM: Two-digit month (01-12)
-/// - DD: Two-digit day (01-31)
-/// - HH: Two-digit hour in 24-hour format (00-23)
-/// - MM: Two-digit minute (00-59)
-/// - SS: Two-digit second (00-59)
-///
-/// # Examples
-/// - "24_01_15_14_30_45" for January 15, 2024 at 2:30:45 PM
-/// - "23_12_31_23_59_59" for December 31, 2023 at 11:59:59 PM
-///
-/// # Platform Consistency
-/// This function produces identical output on all platforms by using
-/// epoch-based calculations rather than platform-specific date commands.
-fn create_archive_timestamp(time: SystemTime) -> String {
-    // Get duration since Unix epoch
-    let duration_since_epoch = match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration,
-        Err(_) => {
-            // System time before Unix epoch - use fallback
-            eprintln!("Warning: System time is before Unix epoch, using fallback timestamp");
-            return String::from("70_01_01_00_00_00");
-        }
-    };
-
-    let total_seconds = duration_since_epoch.as_secs();
-
-    // Use the accurate date calculation
-    let (year, month, day, hour, minute, second) =
-        epoch_seconds_to_datetime_components(total_seconds);
-
-    // Assertion 1: Validate year range
-    const MAX_REASONABLE_YEAR: u32 = 9999;
-    if year > MAX_REASONABLE_YEAR {
-        eprintln!(
-            "Warning: Year {} exceeds maximum reasonable value {}. Using fallback.",
-            year, MAX_REASONABLE_YEAR
-        );
-        return String::from("99_12_31_23_59_59");
-    }
-
-    // Assertion 2: Validate all components are in expected ranges
-    if month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59 {
-        eprintln!(
-            "Warning: Invalid date/time components: {}-{:02}-{:02} {:02}:{:02}:{:02}",
-            year, month, day, hour, minute, second
-        );
-        return String::from("70_01_01_00_00_00"); // Safe fallback
-    }
-
-    // Format as YY_MM_DD_HH_MM_SS
-    format!(
-        "{:02}_{:02}_{:02}_{:02}_{:02}_{:02}",
-        year % 100, // Two-digit year
-        month,
-        day,
-        hour,
-        minute,
-        second
-    )
-}
-
-/// Converts Unix epoch seconds to accurate date/time components
-///
-/// # Purpose
-/// Provides accurate date/time calculation that properly handles:
-/// - Leap years (including century rules)
-/// - Correct days per month
-/// - Time zones (UTC)
-///
-/// # Arguments
-/// * `epoch_seconds` - Seconds since Unix epoch (1970-01-01 00:00:00 UTC)
-///
-/// # Returns
-/// * `(year, month, day, hour, minute, second)` - All as u32 values
-///
-/// # Algorithm
-/// Uses proper calendar arithmetic to convert epoch seconds to date/time
-/// components, accounting for leap years and varying month lengths.
-fn epoch_seconds_to_datetime_components(epoch_seconds: u64) -> (u32, u32, u32, u32, u32, u32) {
-    // Time component calculations
-    const SECONDS_PER_MINUTE: u64 = 60;
-    const SECONDS_PER_HOUR: u64 = 3600;
-    const SECONDS_PER_DAY: u64 = 86400;
-
-    // Calculate time of day components
-    let seconds_today = epoch_seconds % SECONDS_PER_DAY;
-    let hour = (seconds_today / SECONDS_PER_HOUR) as u32;
-    let minute = ((seconds_today % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE) as u32;
-    let second = (seconds_today % SECONDS_PER_MINUTE) as u32;
-
-    // Calculate date components
-    let days_since_epoch = epoch_seconds / SECONDS_PER_DAY;
-    let (year, month, day) = days_to_ymd(days_since_epoch);
-
-    (year, month, day, hour, minute, second)
-}
-
-/// Converts days since Unix epoch to year, month, day
-///
-/// # Purpose
-/// Accurate calendar calculation that properly handles leap years
-/// and correct month lengths.
-///
-/// # Arguments
-/// * `days_since_epoch` - Days since 1970-01-01
-///
-/// # Returns
-/// * `(year, month, day)` - Calendar date components
-///
-/// # Leap Year Rules
-/// - Divisible by 4: leap year
-/// - Divisible by 100: not a leap year
-/// - Divisible by 400: leap year
-///
-/// # Safety Bounds
-/// - Maximum year: 9999 (bounded loop with MAX_YEAR_ITERATIONS)
-/// - If bounds exceeded, returns safe fallback date
-fn days_to_ymd(days_since_epoch: u64) -> (u32, u32, u32) {
-    // Constants for loop bounds and validation
-    const EPOCH_YEAR: u32 = 1970;
-    const MAX_YEAR: u32 = 9999;
-    const MAX_YEAR_ITERATIONS: u32 = MAX_YEAR - EPOCH_YEAR; // 8029 iterations max
-
-    // Start from 1970-01-01
-    let mut year = EPOCH_YEAR;
-    let mut remaining_days = days_since_epoch;
-
-    // Helper function to check if a year is a leap year
-    let is_leap_year = |y: u32| -> bool { (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) };
-
-    // BOUNDED LOOP - Subtract complete years with explicit upper limit
-    let mut iteration_count = 0u32;
-    while remaining_days > 0 && iteration_count < MAX_YEAR_ITERATIONS {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-
-        if remaining_days >= days_in_year {
-            remaining_days -= days_in_year;
-            year += 1;
-            iteration_count += 1;
-        } else {
-            break;
-        }
-    }
-
-    // Assertion 1: Check if we hit the iteration limit (defensive programming)
-    if iteration_count >= MAX_YEAR_ITERATIONS {
-        eprintln!(
-            "Warning: Year calculation exceeded maximum iterations ({}). Input may be corrupted.",
-            MAX_YEAR_ITERATIONS
-        );
-        eprintln!(
-            "Debug: days_since_epoch={}, remaining_days={}, year={}",
-            days_since_epoch, remaining_days, year
-        );
-        // Return safe fallback date: 9999-12-31
-        return (9999, 12, 31);
-    }
-
-    // Assertion 2: Year should be in reasonable range
-    if year > MAX_YEAR {
-        eprintln!(
-            "Warning: Calculated year {} exceeds maximum {}",
-            year, MAX_YEAR
-        );
-        return (9999, 12, 31);
-    }
-
-    // Days in each month for normal and leap years
-    const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    const DAYS_IN_MONTH_LEAP: [u32; 12] = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-    let days_in_months = if is_leap_year(year) {
-        &DAYS_IN_MONTH_LEAP
-    } else {
-        &DAYS_IN_MONTH
-    };
-
-    // BOUNDED LOOP - Find the month and day (max 12 iterations)
-    let mut month = 1u32;
-    let mut days_left = remaining_days as u32;
-
-    // Explicit bound: maximum 12 months
-    for month_index in 0..12 {
-        let days_in_month = days_in_months[month_index];
-
-        if days_left >= days_in_month {
-            days_left -= days_in_month;
-            month += 1;
-        } else {
-            break;
-        }
-    }
-
-    // Assertion 3: Month should be in valid range
-    if month < 1 || month > 12 {
-        eprintln!(
-            "Warning: Calculated month {} is invalid. Defaulting to December.",
-            month
-        );
-        month = 12;
-    }
-
-    // Day of month (1-based), add 1 because we want 1-31, not 0-30
-    let day = days_left + 1;
-
-    // Assertion 4: Day should be in valid range for the month
-    let max_day_for_month = days_in_months[(month - 1) as usize];
-    if day < 1 || day > max_day_for_month {
-        eprintln!(
-            "Warning: Calculated day {} is invalid for month {}. Using last valid day.",
-            day, month
-        );
-        return (year, month, max_day_for_month);
-    }
-
-    (year, month, day)
-}
-
-/// Creates a timestamp with optional microsecond precision for uniqueness
-///
-/// # Purpose
-/// When multiple archives might be created in the same second, this
-/// adds microsecond precision to ensure unique filenames.
-///
-/// # Arguments
-/// * `time` - The SystemTime to format
-/// * `include_microseconds` - Whether to append microseconds
-///
-/// # Returns
-/// * `String` - Timestamp, optionally with microseconds appended
-///
-/// # Format
-/// - Without microseconds: "YY_MM_DD_HH_MM_SS"
-/// - With microseconds: "YY_MM_DD_HH_MM_SS_UUUUUU"
-pub fn create_string_timestamp_with_precision(
-    time: SystemTime,
-    include_microseconds: bool,
-) -> String {
-    let base_timestamp = create_archive_timestamp(time);
-
-    if !include_microseconds {
-        return base_timestamp;
-    }
-
-    // Get microseconds component
-    let duration_since_epoch = match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration,
-        Err(_) => return base_timestamp, // Fall back to base timestamp
-    };
-
-    let microseconds = duration_since_epoch.as_micros() % 1_000_000;
-
-    format!("{}_{:06}", base_timestamp, microseconds)
-}
-
 /// Logs Button changelog errors to dedicated error log directory
 ///
 /// # Purpose
@@ -4004,599 +3868,6 @@ fn get_timestamp_for_error_log_no_heap() -> ([u8; 32], usize) {
 fn timestamp_buffer_to_str(buffer: &[u8; 32], len: usize) -> Result<&str, std::str::Utf8Error> {
     std::str::from_utf8(&buffer[..len])
 }
-
-/// Split it! Duplicates a string of 17-21 characters into two separate == variables
-///
-/// # Purpose
-/// Creates two completely independent variables with the same value, useful when
-/// you need to pass something like a timestamp to two different owners.
-/// This avoids Arc, Mutex, clone, copy, pointers, borrowing issues, ownershp issus, etc.,
-/// or any heap or shared memory - creates true separate pre-allocated equivalent variables.
-///
-/// # Arguments
-/// * `input_string` - A String that must be exactly 24 characters for base timestamp
-///                    or up to 31 characters for timestamp with microseconds
-///
-/// # Returns
-/// * `Result<(String, String), String>` - Two independent copies of the input, or error message
-///
-/// # Memory Allocation
-/// WARNING, ues heap here:String::from_utf8(buffer1[..copy_len].to_vec()
-/// Pre-allocates fixed buffers of 32 bytes each (covering timestamp + microseconds + null terminator)
-/// may not be suitable for very strict code situations
-///
-/// # Constraints
-/// - Maximum input length: 31 characters (YY_MM_DD_HH_MM_SS_UUUUUU format)
-/// - Minimum input length: 17 characters (YY_MM_DD_HH_MM_SS format)
-///
-/// # Example
-/// ```
-/// let timestamp = String::from("24_10_12_12_08_13_656800");
-/// match splitit_string_17to13(timestamp) {
-///     Ok((copy1, copy2)) => {
-///         // copy1 and copy2 are completely independent
-///         // They have the same value but different memory locations
-///     }
-///     Err(e) => eprintln!("Error: {}", e),
-/// }
-/// ```
-pub fn splitit_string_17to13(input_string: String) -> Result<(String, String), String> {
-    // Define maximum timestamp size constants
-    const MIN_TIMESTAMP_LEN: usize = 17; // "YY_MM_DD_HH_MM_SS"
-    const MAX_TIMESTAMP_LEN: usize = 31; // "YY_MM_DD_HH_MM_SS_UUUUUU" (24 chars + 7 for microseconds)
-    const BUFFER_SIZE: usize = 32; // Pre-allocated buffer size (power of 2 for alignment)
-
-    // Validation assertion 1: Check input length bounds
-    let input_len = input_string.len();
-    if input_len < MIN_TIMESTAMP_LEN {
-        return Err(format!(
-            "Input string too short: {} characters, minimum required: {}",
-            input_len, MIN_TIMESTAMP_LEN
-        ));
-    }
-
-    // Validation assertion 2: Check maximum length
-    if input_len > MAX_TIMESTAMP_LEN {
-        return Err(format!(
-            "Input string too long: {} characters, maximum allowed: {}",
-            input_len, MAX_TIMESTAMP_LEN
-        ));
-    }
-
-    // Pre-allocate fixed-size byte arrays
-    let mut buffer1: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
-    let mut buffer2: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
-
-    // Get input as bytes
-    let input_bytes = input_string.as_bytes();
-
-    // Copy bytes to both buffers (bounded loop with explicit upper limit)
-    let copy_len = input_len.min(BUFFER_SIZE - 1); // Ensure we don't overflow
-    for i in 0..copy_len {
-        // Safety assertion: index bounds check
-        if i >= input_bytes.len() {
-            return Err(format!("Unexpected error: index {} out of bounds", i));
-        }
-
-        buffer1[i] = input_bytes[i];
-        buffer2[i] = input_bytes[i];
-    }
-
-    // WARNING: USES HEAP
-    // Convert buffers to strings
-    // Using the actual length of data copied, not the full buffer
-    let string1 = match String::from_utf8(buffer1[..copy_len].to_vec()) {
-        Ok(s) => s,
-        Err(e) => return Err(format!("Failed to create first string copy: {}", e)),
-    };
-
-    let string2 = match String::from_utf8(buffer2[..copy_len].to_vec()) {
-        Ok(s) => s,
-        Err(e) => return Err(format!("Failed to create second string copy: {}", e)),
-    };
-
-    // Final assertion: verify both strings match the original length
-    if string1.len() != input_len || string2.len() != input_len {
-        return Err(String::from("Length mismatch after copying"));
-    }
-
-    Ok((string1, string2))
-}
-
-#[cfg(test)]
-mod timestamp_tests {
-    use super::*;
-
-    #[test]
-    fn test_split_basic_timestamp() {
-        // Test with basic timestamp format
-        let timestamp = String::from("24_10_12_12_08_13");
-        let result = splitit_string_17to13(timestamp.clone());
-
-        assert!(result.is_ok());
-
-        if let Ok((copy1, copy2)) = result {
-            // Verify both copies have the same value
-            assert_eq!(copy1, timestamp);
-            assert_eq!(copy2, timestamp);
-
-            // Verify they are independent (different memory addresses)
-            assert_eq!(copy1, copy2); // Same value
-            assert_ne!(copy1.as_ptr(), copy2.as_ptr()); // Different memory
-        }
-    }
-
-    #[test]
-    fn test_split_timestamp_with_microseconds() {
-        // Test with microseconds included
-        let timestamp = String::from("24_10_12_12_08_13_656800");
-        let result = splitit_string_17to13(timestamp.clone());
-
-        assert!(result.is_ok());
-
-        if let Ok((copy1, copy2)) = result {
-            assert_eq!(copy1, timestamp);
-            assert_eq!(copy2, timestamp);
-            assert_eq!(copy1.len(), 24);
-            assert_eq!(copy2.len(), 24);
-        }
-    }
-
-    #[test]
-    fn test_input_too_short() {
-        // Test error handling for too-short input
-        let short_input = String::from("24_10_12");
-        let result = splitit_string_17to13(short_input);
-
-        assert!(result.is_err());
-        if let Err(msg) = result {
-            assert!(msg.contains("too short"));
-        }
-    }
-
-    #[test]
-    fn test_input_too_long() {
-        // Test error handling for too-long input
-        let long_input = String::from("24_10_12_12_08_13_656800_extra_data");
-        let result = splitit_string_17to13(long_input);
-
-        assert!(result.is_err());
-        if let Err(msg) = result {
-            assert!(msg.contains("too long"));
-        }
-    }
-
-    #[test]
-    fn test_days_to_ymd_boundary_conditions() {
-        // Test 1: Zero days (epoch start: 1970-01-01)
-        let (year, month, day) = days_to_ymd(0);
-        assert_eq!(year, 1970, "Year should be 1970 at epoch");
-        assert_eq!(month, 1, "Month should be January at epoch");
-        assert_eq!(day, 1, "Day should be 1 at epoch");
-
-        // Test 2: One day after epoch (1970-01-02)
-        let (year, month, day) = days_to_ymd(1);
-        assert_eq!(year, 1970, "Year should be 1970");
-        assert_eq!(month, 1, "Month should be January");
-        assert_eq!(day, 2, "Day should be 2");
-
-        // Test 3: Known leap year - Feb 29, 2024
-        // Calculation: Days from 1970-01-01 to 2024-02-29
-        // Method: Count complete years (1970-2023) + days in 2024 (Jan 31 + Feb 29)
-        let days_to_2024_feb_29 = calculate_days_to_date(2024, 2, 29);
-        let (year, month, day) = days_to_ymd(days_to_2024_feb_29);
-        assert_eq!(year, 2024, "Year should be 2024");
-        assert_eq!(month, 2, "Month should be February");
-        assert_eq!(day, 29, "Day should be 29 (leap day)");
-
-        // Test 4: Non-leap year (2023-02-28, no Feb 29)
-        let days_to_2023_feb_28 = calculate_days_to_date(2023, 2, 28);
-        let (year, month, day) = days_to_ymd(days_to_2023_feb_28);
-        assert_eq!(year, 2023, "Year should be 2023");
-        assert_eq!(month, 2, "Month should be February");
-        assert_eq!(day, 28, "Day should be 28");
-
-        // Test 5: End of year (2023-12-31)
-        let days_to_2023_dec_31 = calculate_days_to_date(2023, 12, 31);
-        let (year, month, day) = days_to_ymd(days_to_2023_dec_31);
-        assert_eq!(year, 2023, "Year should be 2023");
-        assert_eq!(month, 12, "Month should be December");
-        assert_eq!(day, 31, "Day should be 31");
-
-        // Test 6: Start of 2024 (2024-01-01)
-        let days_to_2024_jan_01 = calculate_days_to_date(2024, 1, 1);
-        let (year, month, day) = days_to_ymd(days_to_2024_jan_01);
-        assert_eq!(year, 2024, "Year should be 2024");
-        assert_eq!(month, 1, "Month should be January");
-        assert_eq!(day, 1, "Day should be 1");
-    }
-
-    #[test]
-    fn test_days_to_ymd_extreme_input() {
-        // Test with absurdly large input (cosmic ray corruption scenario)
-        let huge_days = u64::MAX / 2; // Very large but won't overflow arithmetic
-
-        // Should return fallback date without panicking
-        let (year, month, day) = days_to_ymd(huge_days);
-
-        // Should hit iteration limit and return fallback
-        assert_eq!(year, 9999, "Should return max year fallback");
-        assert_eq!(month, 12, "Should return December as fallback");
-        assert_eq!(day, 31, "Should return last day as fallback");
-    }
-
-    #[test]
-    fn test_leap_year_calculations() {
-        let is_leap_year = |y: u32| -> bool { (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) };
-
-        // Test standard leap years
-        assert!(is_leap_year(2024), "2024 should be leap year");
-        assert!(
-            is_leap_year(2000),
-            "2000 should be leap year (divisible by 400)"
-        );
-        assert!(is_leap_year(2020), "2020 should be leap year");
-
-        // Test non-leap years
-        assert!(!is_leap_year(2023), "2023 should NOT be leap year");
-        assert!(
-            !is_leap_year(1900),
-            "1900 should NOT be leap year (century rule)"
-        );
-        assert!(
-            !is_leap_year(2100),
-            "2100 should NOT be leap year (century rule)"
-        );
-        assert!(!is_leap_year(2001), "2001 should NOT be leap year");
-    }
-
-    #[test]
-    fn test_century_leap_years() {
-        // Test the century rule (divisible by 100 but not 400)
-        let is_leap_year = |y: u32| -> bool { (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) };
-
-        assert!(!is_leap_year(1800), "1800 should NOT be leap year");
-        assert!(!is_leap_year(1900), "1900 should NOT be leap year");
-        assert!(is_leap_year(2000), "2000 SHOULD be leap year");
-        assert!(!is_leap_year(2100), "2100 should NOT be leap year");
-        assert!(!is_leap_year(2200), "2200 should NOT be leap year");
-        assert!(!is_leap_year(2300), "2300 should NOT be leap year");
-        assert!(is_leap_year(2400), "2400 SHOULD be leap year");
-    }
-
-    /// Helper function to calculate days from epoch to a specific date
-    /// This is used for test validation - it implements the SAME logic as days_to_ymd
-    /// but in reverse, so we can verify our function works correctly.
-    ///
-    /// # Arguments
-    /// * `target_year` - Year (e.g., 2024)
-    /// * `target_month` - Month (1-12)
-    /// * `target_day` - Day (1-31)
-    ///
-    /// # Returns
-    /// * `u64` - Number of days since 1970-01-01
-    fn calculate_days_to_date(target_year: u32, target_month: u32, target_day: u32) -> u64 {
-        const EPOCH_YEAR: u32 = 1970;
-
-        let is_leap_year = |y: u32| -> bool { (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0) };
-
-        // Count days in complete years from 1970 to target_year - 1
-        let mut total_days = 0u64;
-
-        // Bounded loop: maximum (target_year - 1970) iterations
-        let year_diff = target_year.saturating_sub(EPOCH_YEAR);
-        for year_offset in 0..year_diff {
-            let year = EPOCH_YEAR + year_offset;
-            let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-            total_days += days_in_year;
-        }
-
-        // Add days for complete months in target year
-        const DAYS_IN_MONTH: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-        const DAYS_IN_MONTH_LEAP: [u32; 12] = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-        let days_in_months = if is_leap_year(target_year) {
-            &DAYS_IN_MONTH_LEAP
-        } else {
-            &DAYS_IN_MONTH
-        };
-
-        // Add complete months (bounded: max 12 iterations)
-        for month_index in 0..(target_month - 1) as usize {
-            if month_index < 12 {
-                total_days += days_in_months[month_index] as u64;
-            }
-        }
-
-        // Add remaining days (minus 1 because day 1 is day 0 in our count)
-        total_days += (target_day - 1) as u64;
-
-        total_days
-    }
-
-    #[test]
-    fn test_helper_calculate_days_to_date() {
-        // Verify our helper function with known values
-
-        // Epoch start: 0 days
-        assert_eq!(
-            calculate_days_to_date(1970, 1, 1),
-            0,
-            "Epoch should be 0 days"
-        );
-
-        // One day after epoch
-        assert_eq!(
-            calculate_days_to_date(1970, 1, 2),
-            1,
-            "Jan 2, 1970 should be 1 day"
-        );
-
-        // End of January 1970
-        assert_eq!(
-            calculate_days_to_date(1970, 1, 31),
-            30,
-            "Jan 31, 1970 should be 30 days"
-        );
-
-        // Start of February 1970
-        assert_eq!(
-            calculate_days_to_date(1970, 2, 1),
-            31,
-            "Feb 1, 1970 should be 31 days"
-        );
-
-        // One complete year
-        assert_eq!(
-            calculate_days_to_date(1971, 1, 1),
-            365,
-            "Jan 1, 1971 should be 365 days"
-        );
-    }
-
-    #[test]
-    fn test_roundtrip_date_conversion() {
-        // Test that converting TO days and back FROM days gives the same result
-
-        let test_dates = [
-            (1970, 1, 1),   // Epoch
-            (1970, 12, 31), // End of first year
-            (2000, 1, 1),   // Y2K
-            (2000, 2, 29),  // Leap day
-            (2023, 6, 15),  // Random recent date
-            (2024, 2, 29),  // Recent leap day
-        ];
-
-        for (expected_year, expected_month, expected_day) in test_dates.iter() {
-            let days = calculate_days_to_date(*expected_year, *expected_month, *expected_day);
-            let (year, month, day) = days_to_ymd(days);
-
-            assert_eq!(
-                year, *expected_year,
-                "Year mismatch for {}-{:02}-{:02}",
-                expected_year, expected_month, expected_day
-            );
-            assert_eq!(
-                month, *expected_month,
-                "Month mismatch for {}-{:02}-{:02}",
-                expected_year, expected_month, expected_day
-            );
-            assert_eq!(
-                day, *expected_day,
-                "Day mismatch for {}-{:02}-{:02}",
-                expected_year, expected_month, expected_day
-            );
-        }
-    }
-}
-
-/// # Purpose
-/// Always returns two == timestamps, using a fallback if splitting fails.
-/// This version never fails, making it easier to use when you always need timestamps.
-///
-/// # Returns
-/// * `(String, String)` - Two independent timestamp strings
-///
-/// # Fallback behavior
-/// If splitting fails, generates two separate timestamps with SystemTime::now()
-/// This means they might differ by microseconds, but both will be valid.
-///
-/// # Use:
-///  // Generate 2 timestampz
-/// let (timestamp2, timestamp3) = make_double_timestamp_with_heap();
-/// println!("Hello Hello timestamps! {} {}", timestamp2, timestamp3);
-///
-pub fn make_double_timestamp_with_heap() -> (String, String) {
-    // Generate timestamp once
-    // split it!
-    match splitit_string_17to13(create_string_timestamp_with_precision(
-        SystemTime::now(),
-        true,
-    )) {
-        Ok((ts1, ts2)) => (ts1, ts2),
-        Err(e) => {
-            // Log the error
-            eprintln!("Warning: Failed to split timestamp: {}. Using fallback.", e);
-
-            // Fallback:
-            ("".to_string(), "".to_string())
-        }
-    }
-}
-
-/*
- * Solution 2
- * The attempt is to follow NASA's only-preallocated-memory rule.
-let (timestamp4, timestamp5) = match split_timestamp_no_heap(&timestamp_a) {
-    Ok((ts4, ts5)) => (ts4, ts5),
-    Err(e) => {
-        eprintln!("Error: {}", e);
-        // Create two empty FixedTimestamp structs as defaults
-        let empty = FixedTimestamp::from_str("70_01_01_00_00_00").unwrap_or_else(|_| {
-            // If even the fallback fails, create manually
-            FixedTimestamp {
-                data: [0u8; 32],
-                len: 0,
-            }
-        });
-        (empty, empty)
-    }
-};
- */
-
-use std::fmt;
-
-/// Fixed-size timestamp type - stack allocated, no heap
-#[derive(Copy, Clone)]
-pub struct FixedTimestamp {
-    data: [u8; 32],
-    len: usize,
-}
-
-impl FixedTimestamp {
-    /// Create from a string slice
-    pub fn from_str(s: &str) -> Result<Self, String> {
-        const MAX_LEN: usize = 31;
-
-        // Assertion 1: Check length
-        if s.len() > MAX_LEN {
-            return Err(format!(
-                "String too long: {} bytes, max: {}",
-                s.len(),
-                MAX_LEN
-            ));
-        }
-
-        // Assertion 2: Verify valid UTF-8 (already guaranteed by &str type)
-        let mut data = [0u8; 32];
-        let bytes = s.as_bytes();
-
-        // Bounded copy loop
-        for i in 0..s.len().min(MAX_LEN) {
-            data[i] = bytes[i];
-        }
-
-        Ok(FixedTimestamp { data, len: s.len() })
-    }
-
-    /// Get as string slice - SAFE version
-    pub fn as_str(&self) -> Result<&str, std::str::Utf8Error> {
-        assert!(self.len <= 32, "Internal invariant violated");
-        std::str::from_utf8(&self.data[..self.len])
-    }
-}
-
-impl fmt::Display for FixedTimestamp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.as_str() {
-            Ok(s) => write!(f, "{}", s),
-            Err(_) => write!(f, "[invalid UTF-8]"),
-        }
-    }
-}
-
-/// Split a timestamp into two independent copies - NO HEAP, NOT UNSAFE
-pub fn split_timestamp_no_heap(input: &str) -> Result<(FixedTimestamp, FixedTimestamp), String> {
-    // Assertion 1: Length check
-    const MIN_LEN: usize = 17;
-    const MAX_LEN: usize = 31;
-
-    if input.len() < MIN_LEN {
-        return Err(format!(
-            "Too short: {} chars, min: {}",
-            input.len(),
-            MIN_LEN
-        ));
-    }
-    if input.len() > MAX_LEN {
-        return Err(format!("Too long: {} chars, max: {}", input.len(), MAX_LEN));
-    }
-
-    let timestamp = FixedTimestamp::from_str(input)?;
-
-    // These are true copies on the stack, no heap allocation
-    let copy1 = timestamp; // Copy trait does the work
-    let copy2 = timestamp; // Completely independent copy
-
-    // Assertion 3: Verify copies maintain data integrity
-    assert_eq!(copy1.len, timestamp.len, "Copy 1 length mismatch");
-    assert_eq!(copy2.len, timestamp.len, "Copy 2 length mismatch");
-
-    // Assertion 4: Verify independence (different stack addresses)
-    // Note: Can only verify values match, not addresses in safe Rust
-    if let (Ok(s1), Ok(s2)) = (copy1.as_str(), copy2.as_str()) {
-        assert_eq!(s1, s2, "Copies should have identical content");
-    }
-
-    Ok((copy1, copy2))
-}
-
-/*
- * Solution 3: Go Direct
- * The attempt is to follow NASA's only-preallocated-memory rule.
- * Is this really working?
- */
-// use std::fs;
-// use std::path::Path;
-
-/// Creates two strings by writing to temp file and reading twice
-/// Involves no String cloning
-pub fn split_via_file(input: &str) -> Result<(String, String), String> {
-    let temp_path = "/tmp/svf_tmp";
-
-    // Write once
-    fs::write(temp_path, input).map_err(|e| format!("Write failed: {}", e))?;
-
-    // Read twice - each read creates independent String
-    let string1 = fs::read_to_string(temp_path).map_err(|e| format!("Read 1 failed: {}", e))?;
-    let string2 = fs::read_to_string(temp_path).map_err(|e| format!("Read 2 failed: {}", e))?;
-
-    // Clean up
-    let _ = fs::remove_file(temp_path);
-
-    Ok((string1, string2))
-}
-
-/*
-    // Generate full timestamp
-    let timestamp1 = create_string_timestamp_with_precision(SystemTime::now(), true);
-    println!("hello timestamp! {}", timestamp1);
-
-    // Generate 2 timestampz
-    let (timestamp2, timestamp3) = make_double_timestamp_with_heap();
-    println!("Hello Hello ??? timestamps! {} {}", timestamp2, timestamp3);
-
-    let timestamp_a = create_string_timestamp_with_precision(SystemTime::now(), true);
-
-    // Use match for split_timestamp_no_heap
-    match split_timestamp_no_heap(&timestamp_a) {
-        Ok((timestamp4, timestamp5)) => {
-            println!(
-                "Hello Hello no-heap timestamps! {} {}",
-                timestamp4, timestamp5
-            );
-        }
-        Err(e) => {
-            eprintln!("Error splitting timestamp (no heap): {}", e);
-        }
-    }
-
-    let timestamp_b = create_string_timestamp_with_precision(SystemTime::now(), true);
-
-    // Use match for split_via_file
-    match split_via_file(&timestamp_b) {
-        Ok((timestamp6, timestamp7)) => {
-            println!(
-                "Hello Hello file-smooth timestamps! {} {}",
-                timestamp6, timestamp7
-            );
-        }
-        Err(e) => {
-            eprintln!("Error splitting timestamp (via file): {}", e);
-        }
-    }
-}
-*/
 
 // ============================================================================
 // CORE DATA STRUCTURES: LogEntry and Helper Functions
@@ -6928,6 +6199,7 @@ pub fn button_add_multibyte_make_log_files(
 /// # Validation
 /// - Must have bare number file (no letter)
 /// - Letters must be sequential from 'a' with no gaps
+/// - No orphaned letters (e.g., having 'b' without 'a')
 /// - Returns error if incomplete set detected
 fn find_multibyte_log_set(log_dir: &Path, base_number: u128) -> ButtonResult<Vec<PathBuf>> {
     let mut log_files = Vec::with_capacity(MAX_UTF8_BYTES);
@@ -6941,35 +6213,46 @@ fn find_multibyte_log_set(log_dir: &Path, base_number: u128) -> ButtonResult<Vec
         });
     }
 
-    // Look for letter suffixes: a, b, c
-    // Bounded loop: max 3 letters (MAX_UTF8_BYTES - 1)
+    // FIXED: Scan ALL possible letter files first (don't break early)
     let mut found_letters = Vec::new();
     for i in 0..(MAX_UTF8_BYTES - 1) {
         let letter = LOG_LETTER_SEQUENCE[i];
         let letter_path = log_dir.join(format!("{}.{}", base_number, letter));
 
         if letter_path.exists() {
-            found_letters.push((letter, letter_path));
-        } else {
-            // Stop at first missing letter
-            break;
+            found_letters.push((i, letter, letter_path));
         }
     }
 
-    // Validate sequence is continuous (no gaps)
-    for (i, (letter, _)) in found_letters.iter().enumerate() {
-        let expected_letter = LOG_LETTER_SEQUENCE[i];
-        if *letter != expected_letter {
+    // If no letters found, this is a single-byte log (valid)
+    if found_letters.is_empty() {
+        log_files.push(bare_path);
+        return Ok(log_files);
+    }
+
+    // FIXED: Validate that letters are sequential with NO GAPS
+    // Check that we have indices 0, 1, 2... with no missing values
+    for expected_index in 0..found_letters.len() {
+        let (actual_index, letter, _) = &found_letters[expected_index];
+
+        if *actual_index != expected_index {
+            // We have a gap! For example: found 'b' (index 1) but missing 'a' (index 0)
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "Incomplete log set {}: found letter '{}' but missing earlier letters",
+                base_number, letter
+            );
+
             return Err(ButtonError::IncompleteLogSet {
                 base_number,
-                found_logs: "non-sequential letters",
+                found_logs: "non-sequential letters (gap detected)",
             });
         }
     }
 
     // Build result in LIFO order: highest letter first, bare number last
     // Reverse the found letters
-    for (_letter, path) in found_letters.iter().rev() {
+    for (_index, _letter, path) in found_letters.iter().rev() {
         log_files.push(path.clone());
     }
 
@@ -9326,5 +8609,1199 @@ mod router_tests {
 }
 
 // ============================================================================
-// ERROR SECTION: BUTTON UNDO CHANGELOG ERROR HANDLING SYSTEM (start)
+// UNIT TESTS FOR REDO-AWARE UNDO FUNCTIONS
 // ============================================================================
+
+#[cfg(test)]
+mod redo_aware_undo_tests {
+    use super::*;
+    use std::env;
+
+    // ========================================================================
+    // Tests for button_undo_single_byte_with_redo_support (ACTUAL function used)
+    // ========================================================================
+
+    #[test]
+    fn test_single_byte_undo_remove_creates_redo() {
+        // Test: undo removes a byte AND creates redo log to restore it
+        let test_dir = env::temp_dir().join("test_single_undo_remove_redo");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABXCD").unwrap(); // File with 'X' at position 2
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create undo log: "rmv at position 2"
+        let log_entry = LogEntry::new(EditType::Rmv, 2, None).unwrap();
+        fs::write(log_dir.join("0"), log_entry.to_file_format()).unwrap();
+
+        // Execute undo WITH redo support
+        button_undo_single_byte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true, // is_undo_operation = true (will create redo)
+            Some(&redo_dir_abs),
+        )
+        .unwrap();
+
+        // Verify: byte removed
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABCD", "Should remove byte at position 2");
+
+        // Verify: undo log removed
+        assert!(!log_dir.join("0").exists(), "Undo log should be deleted");
+
+        // Verify: redo log created (inverse: add X back)
+        assert!(redo_dir.join("0").exists(), "Redo log should be created");
+
+        let redo_content = fs::read_to_string(redo_dir.join("0")).unwrap();
+        assert!(redo_content.contains("add"), "Redo should say 'add'");
+        assert!(
+            redo_content.contains("58"),
+            "Redo should have byte 0x58 (X)"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_single_byte_undo_add_creates_redo() {
+        // Test: undo adds byte AND creates redo log to remove it again
+        let test_dir = env::temp_dir().join("test_single_undo_add_redo");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABCD").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create undo log: "add 0x58 at position 2"
+        let log_entry = LogEntry::new(EditType::Add, 2, Some(0x58)).unwrap();
+        fs::write(log_dir.join("0"), log_entry.to_file_format()).unwrap();
+
+        // Execute undo
+        button_undo_single_byte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        )
+        .unwrap();
+
+        // Verify: byte added
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABXCD", "Should add byte at position 2");
+
+        // Verify: redo log created (inverse: remove)
+        assert!(redo_dir.join("0").exists(), "Redo log should be created");
+        let redo_content = fs::read_to_string(redo_dir.join("0")).unwrap();
+        assert!(redo_content.contains("rmv"), "Redo should say 'rmv'");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_single_byte_undo_edit_creates_redo() {
+        // Test: undo hex-edits byte AND creates redo log to edit back
+        let test_dir = env::temp_dir().join("test_single_undo_edit_redo");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABZD").unwrap(); // User changed 'C' to 'Z'
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create undo log: "edt 0x43 at position 2" (restore 'C')
+        let log_entry = LogEntry::new(EditType::Edt, 2, Some(0x43)).unwrap();
+        fs::write(log_dir.join("0"), log_entry.to_file_format()).unwrap();
+
+        // Execute undo
+        button_undo_single_byte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        )
+        .unwrap();
+
+        // Verify: byte restored to 'C'
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABCD", "Should restore original byte");
+
+        // Verify: redo log created (inverse: edit back to Z)
+        assert!(redo_dir.join("0").exists(), "Redo log should be created");
+        let redo_content = fs::read_to_string(redo_dir.join("0")).unwrap();
+        assert!(redo_content.contains("edt"), "Redo should say 'edt'");
+        assert!(
+            redo_content.contains("5A"),
+            "Redo should have byte 0x5A (Z)"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_single_byte_redo_no_redo_logs_created() {
+        // Test: redo operations (is_undo_operation=false) don't create more redo logs
+        let test_dir = env::temp_dir().join("test_single_redo_no_logs");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABXCD").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create redo log: "rmv at position 2"
+        let log_entry = LogEntry::new(EditType::Rmv, 2, None).unwrap();
+        fs::write(redo_dir.join("0"), log_entry.to_file_format()).unwrap();
+
+        // Execute REDO (is_undo_operation = false, no redo_dir provided)
+        button_undo_single_byte_with_redo_support(
+            &target_abs,
+            &redo_dir_abs,
+            false, // is_undo_operation = false (REDO mode)
+            None,  // No redo directory for redo operations
+        )
+        .unwrap();
+
+        // Verify: byte removed
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABCD", "Should remove byte");
+
+        // Verify: original redo log removed
+        assert!(!redo_dir.join("0").exists(), "Redo log should be consumed");
+
+        // Verify: no new logs created in redo dir
+        let entries: Vec<_> = fs::read_dir(&redo_dir_abs)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(entries.len(), 0, "No new redo logs should be created");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_single_byte_undo_malformed_log_quarantined() {
+        // Test: malformed log gets quarantined, redo not created
+        let test_dir = env::temp_dir().join("test_single_undo_malformed");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABCD").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create malformed log
+        fs::write(log_dir.join("0"), "GARBAGE\n").unwrap();
+
+        // Execute undo - should fail
+        let result = button_undo_single_byte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        );
+
+        assert!(result.is_err(), "Should fail with malformed log");
+
+        // Verify: log quarantined (not in original location)
+        assert!(!log_dir.join("0").exists(), "Log should be quarantined");
+
+        // Verify: no redo log created
+        assert!(
+            !redo_dir.join("0").exists(),
+            "No redo log for failed operation"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_single_byte_undo_no_logs_error() {
+        // Test: returns error when no logs exist
+        let test_dir = env::temp_dir().join("test_single_undo_no_logs");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABCD").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        // No redo dir needed for this test
+        let result =
+            button_undo_single_byte_with_redo_support(&target_abs, &log_dir_abs, true, None);
+
+        assert!(result.is_err(), "Should fail with no logs");
+        match result {
+            Err(ButtonError::NoLogsFound { .. }) => {} // Expected
+            _ => panic!("Should return NoLogsFound error"),
+        }
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // Tests for button_undo_multibyte_with_redo_support (ACTUAL function used)
+    // ========================================================================
+
+    #[test]
+    fn test_multibyte_undo_remove_creates_redo() {
+        // Test: undo removes 3-byte char AND creates redo logs
+        let test_dir = env::temp_dir().join("test_multi_undo_remove_redo");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"AB\xE9\x98\xBFCD").unwrap(); // Has '阿'
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create undo log set: 0.b, 0.a, 0 (all say "rmv at 2")
+        fs::write(log_dir.join("0.b"), "rmv\n2\n").unwrap();
+        fs::write(log_dir.join("0.a"), "rmv\n2\n").unwrap();
+        fs::write(log_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // Execute undo
+        button_undo_multibyte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        )
+        .unwrap();
+
+        // Verify: character removed
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABCD", "Should remove 3-byte character");
+
+        // Verify: undo logs removed
+        assert!(!log_dir.join("0.b").exists());
+        assert!(!log_dir.join("0.a").exists());
+        assert!(!log_dir.join("0").exists());
+
+        // Verify: redo logs created (inverse: add bytes back)
+        assert!(redo_dir.join("0.b").exists(), "Redo log 0.b created");
+        assert!(redo_dir.join("0.a").exists(), "Redo log 0.a created");
+        assert!(redo_dir.join("0").exists(), "Redo log 0 created");
+
+        // Verify redo logs contain correct inverse (add E9, 98, BF)
+        let redo_0 = fs::read_to_string(redo_dir.join("0")).unwrap();
+        assert!(redo_0.contains("add"));
+        assert!(redo_0.contains("E9")); // First byte
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_multibyte_undo_add_creates_redo() {
+        // Test: undo adds 3-byte char back AND creates redo logs to remove it
+        let test_dir = env::temp_dir().join("test_multi_undo_add_redo");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABCD").unwrap(); // Missing '阿'
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create undo log set: add BF, 98, E9 at position 2
+        fs::write(log_dir.join("0.b"), "add\n2\nBF\n").unwrap();
+        fs::write(log_dir.join("0.a"), "add\n2\n98\n").unwrap();
+        fs::write(log_dir.join("0"), "add\n2\nE9\n").unwrap();
+
+        // Execute undo
+        button_undo_multibyte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        )
+        .unwrap();
+
+        // Verify: character added
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"AB\xE9\x98\xBFCD", "Should add 3-byte character");
+
+        // Verify: redo logs created (inverse: remove)
+        assert!(redo_dir.join("0.b").exists());
+        assert!(redo_dir.join("0.a").exists());
+        assert!(redo_dir.join("0").exists());
+
+        let redo_0 = fs::read_to_string(redo_dir.join("0")).unwrap();
+        assert!(redo_0.contains("rmv"), "Redo should say 'rmv'");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_multibyte_redo_no_redo_logs_created() {
+        // Test: redo operations don't create more redo logs (prevents infinite chain)
+        let test_dir = env::temp_dir().join("test_multi_redo_no_logs");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"AB\xE9\x98\xBFCD").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create redo log set
+        fs::write(redo_dir.join("0.b"), "rmv\n2\n").unwrap();
+        fs::write(redo_dir.join("0.a"), "rmv\n2\n").unwrap();
+        fs::write(redo_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // Execute REDO (is_undo_operation = false)
+        button_undo_multibyte_with_redo_support(
+            &target_abs,
+            &redo_dir_abs,
+            false, // REDO mode
+            None,
+        )
+        .unwrap();
+
+        // Verify: character removed
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABCD");
+
+        // Verify: no new redo logs created
+        let entries: Vec<_> = fs::read_dir(&redo_dir_abs)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(
+            entries.len(),
+            0,
+            "No new redo logs in redo mode (prevents infinite chain)"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_multibyte_undo_incomplete_set_fails() {
+        // Test: incomplete log set causes graceful failure, no redo created
+        let test_dir = env::temp_dir().join("test_multi_undo_incomplete");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"AB\xE9\x98\xBFCD").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create INCOMPLETE log set: missing 0.a
+        fs::write(log_dir.join("0.b"), "rmv\n2\n").unwrap();
+        // Missing 0.a!
+        fs::write(log_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // Execute undo - should fail
+        let result = button_undo_multibyte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        );
+
+        assert!(result.is_err(), "Should fail with incomplete set");
+
+        // Verify: no redo logs created for failed operation
+        assert!(
+            !redo_dir.join("0.b").exists(),
+            "No redo for failed operation"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_multibyte_undo_malformed_quarantines_all() {
+        // Test: one malformed log causes entire set to be quarantined
+        let test_dir = env::temp_dir().join("test_multi_undo_malformed");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"AB\xE9\x98\xBFCD").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create log set with one malformed
+        fs::write(log_dir.join("0.b"), "rmv\n2\n").unwrap();
+        fs::write(log_dir.join("0.a"), "GARBAGE\n").unwrap(); // Malformed!
+        fs::write(log_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // Execute undo - should fail
+        let result = button_undo_multibyte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        );
+
+        assert!(result.is_err(), "Should fail with malformed log");
+
+        // Verify: entire set quarantined
+        assert!(!log_dir.join("0.b").exists(), "Set should be quarantined");
+        assert!(!log_dir.join("0.a").exists());
+        assert!(!log_dir.join("0").exists());
+
+        // Verify: no redo logs created
+        assert!(!redo_dir.join("0.b").exists(), "No redo for failed op");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_multibyte_undo_2byte_character() {
+        // Test: works correctly with 2-byte UTF-8 character
+        let test_dir = env::temp_dir().join("test_multi_undo_2byte");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"AB\xC2\xA9CD").unwrap(); // '©' at position 2
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create log set for 2-byte character: 0.a, 0
+        fs::write(log_dir.join("0.a"), "rmv\n2\n").unwrap();
+        fs::write(log_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // Execute undo
+        button_undo_multibyte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        )
+        .unwrap();
+
+        // Verify: 2-byte character removed
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABCD", "Should remove 2-byte character");
+
+        // Verify: redo logs created
+        assert!(redo_dir.join("0.a").exists());
+        assert!(redo_dir.join("0").exists());
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_multibyte_undo_4byte_character() {
+        // Test: works correctly with 4-byte UTF-8 character (emoji)
+        let test_dir = env::temp_dir().join("test_multi_undo_4byte");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"AB\xF0\x9F\x98\x80CD").unwrap(); // '😀'
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("logs");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        let redo_dir = test_dir.join("redo_logs");
+        fs::create_dir_all(&redo_dir).unwrap();
+        let redo_dir_abs = redo_dir.canonicalize().unwrap();
+
+        // Create log set for 4-byte character: 0.c, 0.b, 0.a, 0
+        fs::write(log_dir.join("0.c"), "rmv\n2\n").unwrap();
+        fs::write(log_dir.join("0.b"), "rmv\n2\n").unwrap();
+        fs::write(log_dir.join("0.a"), "rmv\n2\n").unwrap();
+        fs::write(log_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // Execute undo
+        button_undo_multibyte_with_redo_support(
+            &target_abs,
+            &log_dir_abs,
+            true,
+            Some(&redo_dir_abs),
+        )
+        .unwrap();
+
+        // Verify: 4-byte emoji removed
+        let content = fs::read(&target_file).unwrap();
+        assert_eq!(content, b"ABCD", "Should remove 4-byte emoji");
+
+        // Verify: all 4 redo logs created
+        assert!(redo_dir.join("0.c").exists());
+        assert!(redo_dir.join("0.b").exists());
+        assert!(redo_dir.join("0.a").exists());
+        assert!(redo_dir.join("0").exists());
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // Integration Tests: Complete Undo/Redo Workflow via Router Function
+    // ========================================================================
+
+    #[test]
+    fn test_complete_undo_redo_workflow_single_byte() {
+        // Test: Complete workflow through router function
+        let test_dir = env::temp_dir().join("test_workflow_single");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"ABXCD").unwrap();
+
+        let undo_dir = test_dir.join("changelog_target");
+        let redo_dir = test_dir.join("changelog_redo_target");
+
+        // Create undo log
+        fs::create_dir_all(&undo_dir).unwrap();
+        fs::write(undo_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // UNDO via router (detects undo dir, creates redo)
+        button_undo_next_changelog_lifo(&target_file, &undo_dir).unwrap();
+        assert_eq!(fs::read(&target_file).unwrap(), b"ABCD", "Undo removes X");
+        assert!(redo_dir.join("0").exists(), "Redo log created");
+
+        // REDO via router (detects redo dir, no more redo logs)
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read(&target_file).unwrap(), b"ABXCD", "Redo restores X");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_complete_undo_redo_workflow_multibyte() {
+        // Test: Complete workflow with multi-byte character
+        let test_dir = env::temp_dir().join("test_workflow_multi");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("target.txt");
+        fs::write(&target_file, b"AB\xE9\x98\xBFCD").unwrap(); // Has '阿'
+
+        let undo_dir = test_dir.join("changelog_target");
+        let redo_dir = test_dir.join("changelog_redo_target");
+
+        // Create undo log set
+        fs::create_dir_all(&undo_dir).unwrap();
+        fs::write(undo_dir.join("0.b"), "rmv\n2\n").unwrap();
+        fs::write(undo_dir.join("0.a"), "rmv\n2\n").unwrap();
+        fs::write(undo_dir.join("0"), "rmv\n2\n").unwrap();
+
+        // UNDO via router
+        button_undo_next_changelog_lifo(&target_file, &undo_dir).unwrap();
+        assert_eq!(fs::read(&target_file).unwrap(), b"ABCD", "Undo removes 阿");
+        assert!(redo_dir.join("0.b").exists(), "Redo logs created");
+
+        // REDO via router
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(
+            fs::read(&target_file).unwrap(),
+            b"AB\xE9\x98\xBFCD",
+            "Redo restores 阿"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+}
+
+// ===================================
+// Sample main code, e.g. for testning
+// ===================================
+
+/*
+// main.rs for reversible_edit_changelog_module
+
+mod reversible_edit_changelog_module;
+use reversible_edit_changelog_module::{
+    EditType, button_add_byte_make_log_file, button_clear_all_redo_logs,
+    button_hexeditinplace_byte_make_log_file, button_make_character_action_changelog,
+    button_make_hexedit_changelog, button_remove_byte_make_log_file,
+    button_remove_multibyte_make_log_files, button_undo_next_changelog_lifo,
+    get_changelog_directory_path,
+};
+use std::fs;
+
+fn main() -> std::io::Result<()> {
+    println!("=============================================================");
+    println!("BUTTON UNDO/REDO SYSTEM - COMPREHENSIVE TEST");
+    println!("=============================================================\n");
+
+    // Get current directory
+    let test_dir = std::env::current_dir()?;
+
+    // =========================================================================
+    // TEST 1: REMOVE OPERATION (User added 'a', log says remove it)
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("TEST 1: REMOVE OPERATION");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let remove_test_file = test_dir.join("remove_test.txt");
+
+    // Setup: Create file with 'a' (simulating user added it)
+    println!("1. Setup: Creating file with 'a' (user just added it)");
+    fs::write(&remove_test_file, b"a")?;
+    println!(
+        "   File contents: {:?}",
+        fs::read_to_string(&remove_test_file)?
+    );
+
+    // Create changelog: rmv at position 0
+    println!("2. Creating changelog: RMV at position 0");
+    let log_dir_remove = test_dir.join("changelog_remove_test");
+    button_remove_byte_make_log_file(&fs::canonicalize(&remove_test_file)?, 0, &log_dir_remove)
+        .expect("Failed to create remove log");
+    println!("   ✓ Changelog created in: {}", log_dir_remove.display());
+
+    // Execute undo (should remove 'a', leaving empty file)
+    println!("3. Executing UNDO (should remove 'a')");
+    button_undo_next_changelog_lifo(&remove_test_file, &log_dir_remove)
+        .expect("Failed to undo remove");
+    let result = fs::read_to_string(&remove_test_file)?;
+    println!(
+        "   File after undo: {:?} (length: {})",
+        result,
+        result.len()
+    );
+    assert_eq!(result, "", "TEST 1 FAILED: File should be empty");
+    println!("   ✅ TEST 1 PASSED: File is now empty\n");
+
+    // Test REDO functionality
+    println!("4. Testing REDO (should restore 'a')");
+    let redo_dir_remove = test_dir.join("changelog_redo_remove_test");
+    button_undo_next_changelog_lifo(&remove_test_file, &redo_dir_remove).expect("Failed to redo");
+    let result = fs::read_to_string(&remove_test_file)?;
+    println!("   File after redo: {:?}", result);
+    assert_eq!(result, "a", "TEST 1 REDO FAILED: File should contain 'a'");
+    println!("   ✅ TEST 1 REDO PASSED: 'a' restored\n");
+
+    // Cleanup
+    let _ = fs::remove_file(&remove_test_file);
+    let _ = fs::remove_dir_all(&log_dir_remove);
+    let _ = fs::remove_dir_all(&redo_dir_remove);
+
+    // =========================================================================
+    // TEST 2: HEX EDIT OPERATION (User changed 'a' to 'b', log says change back)
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("TEST 2: HEX EDIT OPERATION");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let hexedit_test_file = test_dir.join("hex_edit_test.txt");
+
+    // Setup: Create file with 'b' (simulating user hex-edited 'a' to 'b')
+    println!("1. Setup: Creating file with 'b' (user hex-edited 'a'→'b')");
+    fs::write(&hexedit_test_file, b"b")?;
+    println!(
+        "   File contents: {:?}",
+        fs::read_to_string(&hexedit_test_file)?
+    );
+
+    // Create changelog: edt 61 (hex for 'a') at position 0
+    println!("2. Creating changelog: EDT 0x61 ('a') at position 0");
+    let log_dir_hexedit = test_dir.join("changelog_hex_edit_test");
+    button_hexeditinplace_byte_make_log_file(
+        &fs::canonicalize(&hexedit_test_file)?,
+        0,
+        0x61, // Original value 'a'
+        &log_dir_hexedit,
+    )
+    .expect("Failed to create hex edit log");
+    println!("   ✓ Changelog created in: {}", log_dir_hexedit.display());
+
+    // Execute undo (should change 'b' back to 'a')
+    println!("3. Executing UNDO (should change 'b' back to 'a')");
+    button_undo_next_changelog_lifo(&hexedit_test_file, &log_dir_hexedit)
+        .expect("Failed to undo hex edit");
+    let result = fs::read_to_string(&hexedit_test_file)?;
+    println!("   File after undo: {:?}", result);
+    assert_eq!(result, "a", "TEST 2 FAILED: File should contain 'a'");
+    println!("   ✅ TEST 2 PASSED: 'b' changed back to 'a'\n");
+
+    // Test REDO functionality
+    println!("4. Testing REDO (should change back to 'b')");
+    let redo_dir_hexedit = test_dir.join("changelog_redo_hex_edit_test");
+    button_undo_next_changelog_lifo(&hexedit_test_file, &redo_dir_hexedit)
+        .expect("Failed to redo hex edit");
+    let result = fs::read_to_string(&hexedit_test_file)?;
+    println!("   File after redo: {:?}", result);
+    assert_eq!(result, "b", "TEST 2 REDO FAILED: File should contain 'b'");
+    println!("   ✅ TEST 2 REDO PASSED: 'a' changed back to 'b'\n");
+
+    // Cleanup
+    let _ = fs::remove_file(&hexedit_test_file);
+    let _ = fs::remove_dir_all(&log_dir_hexedit);
+    let _ = fs::remove_dir_all(&redo_dir_hexedit);
+
+    // =========================================================================
+    // TEST 3: ADD OPERATION (User removed 'a', log says add it back)
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("TEST 3: ADD OPERATION");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let add_test_file = test_dir.join("add_test.txt");
+
+    // Setup: Create empty file (simulating user removed 'a')
+    println!("1. Setup: Creating empty file (user just removed 'a')");
+    fs::write(&add_test_file, b"")?;
+    let content = fs::read_to_string(&add_test_file)?;
+    println!(
+        "   File contents: {:?} (length: {})",
+        content,
+        content.len()
+    );
+
+    // Create changelog: add 61 ('a') at position 0
+    println!("2. Creating changelog: ADD 0x61 ('a') at position 0");
+    let log_dir_add = test_dir.join("changelog_add_test");
+    button_add_byte_make_log_file(
+        &fs::canonicalize(&add_test_file)?,
+        0,
+        0x61, // 'a'
+        &log_dir_add,
+    )
+    .expect("Failed to create add log");
+    println!("   ✓ Changelog created in: {}", log_dir_add.display());
+
+    // Execute undo (should add 'a' back)
+    println!("3. Executing UNDO (should add 'a' back)");
+    button_undo_next_changelog_lifo(&add_test_file, &log_dir_add).expect("Failed to undo add");
+    let result = fs::read_to_string(&add_test_file)?;
+    println!("   File after undo: {:?}", result);
+    assert_eq!(result, "a", "TEST 3 FAILED: File should contain 'a'");
+    println!("   ✅ TEST 3 PASSED: 'a' added back\n");
+
+    // Test REDO functionality
+    println!("4. Testing REDO (should remove 'a' again)");
+    let redo_dir_add = test_dir.join("changelog_redo_add_test");
+    button_undo_next_changelog_lifo(&add_test_file, &redo_dir_add).expect("Failed to redo add");
+    let result = fs::read_to_string(&add_test_file)?;
+    println!(
+        "   File after redo: {:?} (length: {})",
+        result,
+        result.len()
+    );
+    assert_eq!(result, "", "TEST 3 REDO FAILED: File should be empty");
+    println!("   ✅ TEST 3 REDO PASSED: 'a' removed again\n");
+
+    // Cleanup
+    let _ = fs::remove_file(&add_test_file);
+    let _ = fs::remove_dir_all(&log_dir_add);
+    let _ = fs::remove_dir_all(&redo_dir_add);
+
+    // =========================================================================
+    // TEST 4: MULTI-BYTE CHARACTER (UTF-8)
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("BONUS TEST: MULTI-BYTE CHARACTER (UTF-8 '阿')");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let multibyte_test_file = test_dir.join("multibyte_test.txt");
+
+    // Setup: Create file with '阿' (3-byte UTF-8 character)
+    println!("1. Setup: Creating file with '阿' (user just added it)");
+    fs::write(&multibyte_test_file, "阿")?;
+    println!(
+        "   File contents: {:?}",
+        fs::read_to_string(&multibyte_test_file)?
+    );
+
+    // Create changelog: rmv at position 0 (3 log files)
+    println!("2. Creating changelog: RMV (multi-byte) at position 0");
+    let log_dir_multibyte = test_dir.join("changelog_multibyte_test");
+    button_remove_multibyte_make_log_files(
+        &fs::canonicalize(&multibyte_test_file)?,
+        0,
+        3, // 3 bytes in '阿'
+        &log_dir_multibyte,
+    )
+    .expect("Failed to create multibyte remove log");
+    println!("   ✓ Changelog created in: {}", log_dir_multibyte.display());
+
+    // Execute undo (should remove '阿')
+    println!("3. Executing UNDO (should remove '阿')");
+    button_undo_next_changelog_lifo(&multibyte_test_file, &log_dir_multibyte)
+        .expect("Failed to undo multibyte remove");
+    let result = fs::read_to_string(&multibyte_test_file)?;
+    println!(
+        "   File after undo: {:?} (length: {})",
+        result,
+        result.len()
+    );
+    assert_eq!(result, "", "MULTIBYTE TEST FAILED: File should be empty");
+    println!("   ✅ MULTIBYTE TEST PASSED: '阿' removed\n");
+
+    // Test REDO functionality
+    println!("4. Testing REDO (should restore '阿')");
+    let redo_dir_multibyte = test_dir.join("changelog_redo_multibyte_test");
+    button_undo_next_changelog_lifo(&multibyte_test_file, &redo_dir_multibyte)
+        .expect("Failed to redo multibyte");
+    let result = fs::read_to_string(&multibyte_test_file)?;
+    println!("   File after redo: {:?}", result);
+    assert_eq!(
+        result, "阿",
+        "MULTIBYTE REDO FAILED: File should contain '阿'"
+    );
+    println!("   ✅ MULTIBYTE REDO PASSED: '阿' restored\n");
+
+    // =========================================================================
+    // NEW TEST 5: HIGH-LEVEL API - button_make_character_action_changelog()
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("TEST 5: HIGH-LEVEL API - Character Action Changelog");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let test5_file = test_dir.join("test5_character.txt");
+
+    // Test 5a: User ADDS single-byte character
+    println!("5a. User adds 'X' at position 2");
+    fs::write(&test5_file, b"AB")?;
+
+    // Manually add 'X' to simulate user action
+    fs::write(&test5_file, b"ABX")?;
+    println!("   ✓ Character add log created");
+
+    // Simulate: user adds 'X', log should say "remove"
+    let log_dir_5a = test_dir.join("changelog_test5_character");
+    button_make_character_action_changelog(
+        &test5_file,
+        None, // Don't need character for Add
+        2,
+        EditType::Add,
+        &log_dir_5a,
+    )
+    .expect("Failed to create character add log");
+
+    // Undo should remove 'X'
+    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+        .expect("Failed to undo character add");
+
+    let result = fs::read_to_string(&test5_file)?;
+    assert_eq!(result, "AB", "TEST 5a FAILED: X should be removed");
+    println!("   ✅ TEST 5a PASSED: Character add undone\n");
+
+    // ===========================================
+    // Test 5b: User REMOVES single-byte character
+    println!("5b. User removes 'B' at position 1");
+    fs::write(&test5_file, b"AB")?;
+
+    // Simulate: user removes 'B', log should say "add B"
+    button_make_character_action_changelog(
+        &test5_file,
+        Some('B'), // Need character to restore
+        1,
+        EditType::Rmv,
+        &log_dir_5a,
+    )
+    .expect("Failed to create character remove log");
+
+    println!("   ✓ Character remove log created");
+
+    // Manually remove 'B' to simulate user action
+    fs::write(&test5_file, b"A")?;
+
+    // Undo should restore 'B'
+    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+        .expect("Failed to undo character remove");
+
+    let result = fs::read_to_string(&test5_file)?;
+    assert_eq!(result, "AB", "TEST 5b FAILED: B should be restored");
+    println!("   ✅ TEST 5b PASSED: Character remove undone\n");
+
+    // =======================================
+    // Test 5c: User ADDS multi-byte character
+    println!("5c. User adds '阿' at position 2");
+    fs::write(&test5_file, b"AB")?;
+
+    // Manually add '阿' to simulate user action
+    fs::write(&test5_file, "AB阿")?;
+
+    // Simulate: user adds '阿', log should say "remove" (3 times)
+    button_make_character_action_changelog(&test5_file, None, 2, EditType::Add, &log_dir_5a)
+        .expect("Failed to create multi-byte add log");
+    println!("   ✓ Multi-byte character add log created");
+
+    // Undo should remove '阿'
+    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+        .expect("Failed to undo multi-byte add");
+
+    let result = fs::read_to_string(&test5_file)?;
+    assert_eq!(result, "AB", "TEST 5c FAILED: 阿 should be removed");
+    println!("   ✅ TEST 5c PASSED: Multi-byte character add undone\n");
+
+    // ==========================================
+    // Test 5d: User REMOVES multi-byte character
+    /*
+     * Note: only remove-action (shoud, at least)
+     * validate the target position, so there is
+     * no sequence issue for add-action
+     */
+    println!("5d. User removes '阿' at position 2");
+    fs::write(&test5_file, "AB阿")?;
+
+    // Simulate: user removes '阿', log should say "add 阿"
+    button_make_character_action_changelog(&test5_file, Some('阿'), 2, EditType::Rmv, &log_dir_5a)
+        .expect("Failed to create multi-byte remove log");
+
+    // HERE, AFTER LOG, HOW IS LOG TESTING THE POSITION?
+    // Manually remove '阿' to simulate user action
+    fs::write(&test5_file, b"AB")?;
+
+    println!("   ✓ Multi-byte character remove log created");
+
+    // Undo should restore '阿'
+    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+        .expect("Failed to undo multi-byte remove");
+
+    let result = fs::read_to_string(&test5_file)?;
+    assert_eq!(result, "AB阿", "TEST 5d FAILED: 阿 should be restored");
+    println!("   ✅ TEST 5d PASSED: Multi-byte character remove undone\n");
+
+    // Cleanup
+    let _ = fs::remove_file(&test5_file);
+    let _ = fs::remove_dir_all(&log_dir_5a);
+
+    // =========================================================================
+    // NEW TEST 6: HIGH-LEVEL API - button_make_hexedit_changelog()
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("TEST 6: HIGH-LEVEL API - Hex Edit Changelog");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let test6_file = test_dir.join("test6_hexedit.txt");
+
+    println!("6. User hex-edits position 1: 'B' (0x42) → 'Z' (0x5A)");
+    fs::write(&test6_file, b"ABC")?;
+
+    // Log original value before user's hex-edit
+    let log_dir_6 = test_dir.join("changelog_test6_hexedit");
+    button_make_hexedit_changelog(
+        &test6_file,
+        1,
+        0x42, // Original 'B'
+        &log_dir_6,
+    )
+    .expect("Failed to create hex-edit log");
+
+    println!("   ✓ Hex-edit log created");
+
+    // Manually hex-edit to simulate user action
+    fs::write(&test6_file, b"AZC")?;
+
+    // Undo should restore 'B'
+    button_undo_next_changelog_lifo(&test6_file, &log_dir_6).expect("Failed to undo hex-edit");
+
+    let result = fs::read_to_string(&test6_file)?;
+    assert_eq!(result, "ABC", "TEST 6 FAILED: B should be restored");
+    println!("   ✅ TEST 6 PASSED: Hex-edit undone\n");
+
+    // Test redo
+    let redo_dir_6 = test_dir.join("changelog_redo_test6_hexedit");
+    button_undo_next_changelog_lifo(&test6_file, &redo_dir_6).expect("Failed to redo hex-edit");
+
+    let result = fs::read_to_string(&test6_file)?;
+    assert_eq!(result, "AZC", "TEST 6 REDO FAILED: Z should be restored");
+    println!("   ✅ TEST 6 REDO PASSED: Hex-edit redone\n");
+
+    // Cleanup
+    let _ = fs::remove_file(&test6_file);
+    let _ = fs::remove_dir_all(&log_dir_6);
+    let _ = fs::remove_dir_all(&redo_dir_6);
+
+    // =========================================================================
+    // NEW TEST 7: HIGH-LEVEL API - get_changelog_directory_path()
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("TEST 7: HIGH-LEVEL API - Get Changelog Directory Path");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let test7_file = test_dir.join("myfile.txt");
+    fs::write(&test7_file, b"test")?;
+
+    let log_dir =
+        get_changelog_directory_path(&test7_file).expect("Failed to get changelog directory path");
+
+    println!("7. Changelog directory path: {}", log_dir.display());
+
+    // Verify naming convention
+    let dir_name = log_dir.file_name().unwrap().to_string_lossy();
+    assert!(
+        dir_name.starts_with("changelog_"),
+        "TEST 7 FAILED: Directory should start with 'changelog_'"
+    );
+    assert!(
+        dir_name.contains("myfile"),
+        "TEST 7 FAILED: Directory should contain filename"
+    );
+
+    println!("   ✅ TEST 7 PASSED: Directory path correct\n");
+
+    // Cleanup
+    let _ = fs::remove_file(&test7_file);
+
+    // =========================================================================
+    // NEW TEST 8: HIGH-LEVEL API - button_clear_all_redo_logs()
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("TEST 8: HIGH-LEVEL API - Clear All Redo Logs");
+    println!("─────────────────────────────────────────────────────────────");
+
+    let test8_file = test_dir.join("test8_clear.txt");
+    fs::write(&test8_file, b"A")?;
+
+    // Create some redo logs manually
+    let redo_dir_8 = test_dir.join("changelog_redo_test8_clear");
+    fs::create_dir_all(&redo_dir_8)?;
+    fs::write(redo_dir_8.join("0"), "rmv\n0\n")?;
+    fs::write(redo_dir_8.join("1"), "rmv\n1\n")?;
+    fs::write(redo_dir_8.join("2"), "rmv\n2\n")?;
+
+    println!("8. Created 3 redo log files");
+
+    // Verify they exist
+    assert!(redo_dir_8.join("0").exists());
+    assert!(redo_dir_8.join("1").exists());
+    assert!(redo_dir_8.join("2").exists());
+
+    // Clear redo logs
+    button_clear_all_redo_logs(&test8_file).expect("Failed to clear redo logs");
+
+    println!("   Called button_clear_all_redo_logs()");
+
+    // Verify they're gone
+    assert!(
+        !redo_dir_8.join("0").exists(),
+        "TEST 8 FAILED: Redo log 0 should be removed"
+    );
+    assert!(
+        !redo_dir_8.join("1").exists(),
+        "TEST 8 FAILED: Redo log 1 should be removed"
+    );
+    assert!(
+        !redo_dir_8.join("2").exists(),
+        "TEST 8 FAILED: Redo log 2 should be removed"
+    );
+
+    println!("   ✅ TEST 8 PASSED: All redo logs cleared\n");
+
+    // Cleanup
+    let _ = fs::remove_file(&test8_file);
+    let _ = fs::remove_dir_all(&redo_dir_8);
+
+    // =========================================================================
+    // FINAL SUMMARY
+    // =========================================================================
+    println!("=============================================================");
+    println!("✅ ALL TESTS PASSED!");
+    println!("=============================================================");
+    println!("✓ Test 1: Remove operation (undo + redo)");
+    println!("✓ Test 2: Hex edit operation (undo + redo)");
+    println!("✓ Test 3: Add operation (undo + redo)");
+    println!("✓ Test 4: Multi-byte UTF-8 character (undo + redo)");
+    println!("✓ Test 5: HIGH-LEVEL API - Character action changelog");
+    println!("✓ Test 6: HIGH-LEVEL API - Hex edit changelog");
+    println!("✓ Test 7: HIGH-LEVEL API - Get changelog directory path");
+    println!("✓ Test 8: HIGH-LEVEL API - Clear all redo logs");
+    println!("=============================================================\n");
+
+    // // Cleanup
+    // let _ = fs::remove_file(&multibyte_test_file);
+    // let _ = fs::remove_dir_all(&log_dir_multibyte);
+    // let _ = fs::remove_dir_all(&redo_dir_multibyte);
+
+    // // =========================================================================
+    // // FINAL SUMMARY
+    // // =========================================================================
+    // println!("=============================================================");
+    // println!("✅ ALL TESTS PASSED!");
+    // println!("=============================================================");
+    // println!("✓ Test 1: Remove operation (undo + redo)");
+    // println!("✓ Test 2: Hex edit operation (undo + redo)");
+    // println!("✓ Test 3: Add operation (undo + redo)");
+    // println!("✓ Bonus: Multi-byte UTF-8 character (undo + redo)");
+    // println!("=============================================================\n");
+
+    Ok(())
+}
+
+*/
