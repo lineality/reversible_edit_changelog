@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "reversible_edit_changelog"
+name = "buttons_reversible_edit_changelog"
 version = "0.1.0"

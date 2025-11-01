@@ -1,4 +1,5 @@
-//! Reversible Edit Changelog System
+//! buttons_reversible_edit_changelog_module.rs
+//! Buttons: Reversible Character and Byte Undo Redo Changelog System
 //!
 //! A transparent, file-based undo system for byte-level file edits.
 //! Creates human-readable changelog files (one byte per file) that can be

@@ -1,7 +1,7 @@
-// main.rs for reversible_edit_changelog_module
+// main.rs for buttons_reversible_edit_changelog_module
 
-mod reversible_edit_changelog_module;
-use reversible_edit_changelog_module::{
+mod buttons_reversible_edit_changelog_module;
+use buttons_reversible_edit_changelog_module::{
     EditType, button_add_byte_make_log_file, button_clear_all_redo_logs,
     button_hexeditinplace_byte_make_log_file, button_make_character_action_changelog,
     button_make_hexedit_changelog, button_remove_byte_make_log_file,
