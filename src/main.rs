@@ -5,7 +5,7 @@ use buttons_reversible_edit_changelog_module::{
     EditType, button_add_byte_make_log_file, button_clear_all_redo_logs,
     button_hexeditinplace_byte_make_log_file, button_make_character_action_changelog,
     button_make_hexedit_changelog, button_remove_byte_make_log_file,
-    button_remove_multibyte_make_log_files, button_undo_next_changelog_lifo,
+    button_remove_multibyte_make_log_files, button_undo_redo_next_inverse_changelog_pop_lifo,
     get_changelog_directory_path,
 };
 use std::fs;
@@ -37,14 +37,14 @@ fn main() -> std::io::Result<()> {
 
     // Create changelog: rmv at position 0
     println!("2. Creating changelog: RMV at position 0");
-    let log_dir_remove = test_dir.join("changelog_remove_test");
+    let log_dir_remove = test_dir.join("changelog_remove_testtxt");
     button_remove_byte_make_log_file(&fs::canonicalize(&remove_test_file)?, 0, &log_dir_remove)
         .expect("Failed to create remove log");
     println!("   ✓ Changelog created in: {}", log_dir_remove.display());
 
     // Execute undo (should remove 'a', leaving empty file)
     println!("3. Executing UNDO (should remove 'a')");
-    button_undo_next_changelog_lifo(&remove_test_file, &log_dir_remove)
+    button_undo_redo_next_inverse_changelog_pop_lifo(&remove_test_file, &log_dir_remove)
         .expect("Failed to undo remove");
     let result = fs::read_to_string(&remove_test_file)?;
     println!(
@@ -57,8 +57,9 @@ fn main() -> std::io::Result<()> {
 
     // Test REDO functionality
     println!("4. Testing REDO (should restore 'a')");
-    let redo_dir_remove = test_dir.join("changelog_redo_remove_test");
-    button_undo_next_changelog_lifo(&remove_test_file, &redo_dir_remove).expect("Failed to redo");
+    let redo_dir_remove = test_dir.join("changelog_redo_remove_testtxt");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&remove_test_file, &redo_dir_remove)
+        .expect("Failed to redo");
     let result = fs::read_to_string(&remove_test_file)?;
     println!("   File after redo: {:?}", result);
     assert_eq!(result, "a", "TEST 1 REDO FAILED: File should contain 'a'");
@@ -88,7 +89,7 @@ fn main() -> std::io::Result<()> {
 
     // Create changelog: edt 61 (hex for 'a') at position 0
     println!("2. Creating changelog: EDT 0x61 ('a') at position 0");
-    let log_dir_hexedit = test_dir.join("changelog_hex_edit_test");
+    let log_dir_hexedit = test_dir.join("changelog_hex_edit_testtxt");
     button_hexeditinplace_byte_make_log_file(
         &fs::canonicalize(&hexedit_test_file)?,
         0,
@@ -100,7 +101,7 @@ fn main() -> std::io::Result<()> {
 
     // Execute undo (should change 'b' back to 'a')
     println!("3. Executing UNDO (should change 'b' back to 'a')");
-    button_undo_next_changelog_lifo(&hexedit_test_file, &log_dir_hexedit)
+    button_undo_redo_next_inverse_changelog_pop_lifo(&hexedit_test_file, &log_dir_hexedit)
         .expect("Failed to undo hex edit");
     let result = fs::read_to_string(&hexedit_test_file)?;
     println!("   File after undo: {:?}", result);
@@ -109,8 +110,8 @@ fn main() -> std::io::Result<()> {
 
     // Test REDO functionality
     println!("4. Testing REDO (should change back to 'b')");
-    let redo_dir_hexedit = test_dir.join("changelog_redo_hex_edit_test");
-    button_undo_next_changelog_lifo(&hexedit_test_file, &redo_dir_hexedit)
+    let redo_dir_hexedit = test_dir.join("changelog_redo_hex_edit_testtxt");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&hexedit_test_file, &redo_dir_hexedit)
         .expect("Failed to redo hex edit");
     let result = fs::read_to_string(&hexedit_test_file)?;
     println!("   File after redo: {:?}", result);
@@ -143,7 +144,7 @@ fn main() -> std::io::Result<()> {
 
     // Create changelog: add 61 ('a') at position 0
     println!("2. Creating changelog: ADD 0x61 ('a') at position 0");
-    let log_dir_add = test_dir.join("changelog_add_test");
+    let log_dir_add = test_dir.join("changelog_add_testtxt");
     button_add_byte_make_log_file(
         &fs::canonicalize(&add_test_file)?,
         0,
@@ -155,7 +156,8 @@ fn main() -> std::io::Result<()> {
 
     // Execute undo (should add 'a' back)
     println!("3. Executing UNDO (should add 'a' back)");
-    button_undo_next_changelog_lifo(&add_test_file, &log_dir_add).expect("Failed to undo add");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&add_test_file, &log_dir_add)
+        .expect("Failed to undo add");
     let result = fs::read_to_string(&add_test_file)?;
     println!("   File after undo: {:?}", result);
     assert_eq!(result, "a", "TEST 3 FAILED: File should contain 'a'");
@@ -163,8 +165,9 @@ fn main() -> std::io::Result<()> {
 
     // Test REDO functionality
     println!("4. Testing REDO (should remove 'a' again)");
-    let redo_dir_add = test_dir.join("changelog_redo_add_test");
-    button_undo_next_changelog_lifo(&add_test_file, &redo_dir_add).expect("Failed to redo add");
+    let redo_dir_add = test_dir.join("changelog_redo_add_testtxt");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&add_test_file, &redo_dir_add)
+        .expect("Failed to redo add");
     let result = fs::read_to_string(&add_test_file)?;
     println!(
         "   File after redo: {:?} (length: {})",
@@ -198,7 +201,7 @@ fn main() -> std::io::Result<()> {
 
     // Create changelog: rmv at position 0 (3 log files)
     println!("2. Creating changelog: RMV (multi-byte) at position 0");
-    let log_dir_multibyte = test_dir.join("changelog_multibyte_test");
+    let log_dir_multibyte = test_dir.join("changelog_multibyte_testtxt");
     button_remove_multibyte_make_log_files(
         &fs::canonicalize(&multibyte_test_file)?,
         0,
@@ -210,7 +213,7 @@ fn main() -> std::io::Result<()> {
 
     // Execute undo (should remove '阿')
     println!("3. Executing UNDO (should remove '阿')");
-    button_undo_next_changelog_lifo(&multibyte_test_file, &log_dir_multibyte)
+    button_undo_redo_next_inverse_changelog_pop_lifo(&multibyte_test_file, &log_dir_multibyte)
         .expect("Failed to undo multibyte remove");
     let result = fs::read_to_string(&multibyte_test_file)?;
     println!(
@@ -223,8 +226,8 @@ fn main() -> std::io::Result<()> {
 
     // Test REDO functionality
     println!("4. Testing REDO (should restore '阿')");
-    let redo_dir_multibyte = test_dir.join("changelog_redo_multibyte_test");
-    button_undo_next_changelog_lifo(&multibyte_test_file, &redo_dir_multibyte)
+    let redo_dir_multibyte = test_dir.join("changelog_redo_multibyte_testtxt");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&multibyte_test_file, &redo_dir_multibyte)
         .expect("Failed to redo multibyte");
     let result = fs::read_to_string(&multibyte_test_file)?;
     println!("   File after redo: {:?}", result);
@@ -252,7 +255,7 @@ fn main() -> std::io::Result<()> {
     println!("   ✓ Character add log created");
 
     // Simulate: user adds 'X', log should say "remove"
-    let log_dir_5a = test_dir.join("changelog_test5_character");
+    let log_dir_5a = test_dir.join("changelog_test5_charactertxt");
     button_make_character_action_changelog(
         &test5_file,
         None, // Don't need character for Add
@@ -263,7 +266,7 @@ fn main() -> std::io::Result<()> {
     .expect("Failed to create character add log");
 
     // Undo should remove 'X'
-    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+    button_undo_redo_next_inverse_changelog_pop_lifo(&test5_file, &log_dir_5a)
         .expect("Failed to undo character add");
 
     let result = fs::read_to_string(&test5_file)?;
@@ -291,7 +294,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, b"A")?;
 
     // Undo should restore 'B'
-    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+    button_undo_redo_next_inverse_changelog_pop_lifo(&test5_file, &log_dir_5a)
         .expect("Failed to undo character remove");
 
     let result = fs::read_to_string(&test5_file)?;
@@ -312,7 +315,7 @@ fn main() -> std::io::Result<()> {
     println!("   ✓ Multi-byte character add log created");
 
     // Undo should remove '阿'
-    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+    button_undo_redo_next_inverse_changelog_pop_lifo(&test5_file, &log_dir_5a)
         .expect("Failed to undo multi-byte add");
 
     let result = fs::read_to_string(&test5_file)?;
@@ -340,7 +343,7 @@ fn main() -> std::io::Result<()> {
     println!("   ✓ Multi-byte character remove log created");
 
     // Undo should restore '阿'
-    button_undo_next_changelog_lifo(&test5_file, &log_dir_5a)
+    button_undo_redo_next_inverse_changelog_pop_lifo(&test5_file, &log_dir_5a)
         .expect("Failed to undo multi-byte remove");
 
     let result = fs::read_to_string(&test5_file)?;
@@ -364,7 +367,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test6_file, b"ABC")?;
 
     // Log original value before user's hex-edit
-    let log_dir_6 = test_dir.join("changelog_test6_hexedit");
+    let log_dir_6 = test_dir.join("changelog_test6_hexedittxt");
     button_make_hexedit_changelog(
         &test6_file,
         1,
@@ -379,15 +382,17 @@ fn main() -> std::io::Result<()> {
     fs::write(&test6_file, b"AZC")?;
 
     // Undo should restore 'B'
-    button_undo_next_changelog_lifo(&test6_file, &log_dir_6).expect("Failed to undo hex-edit");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&test6_file, &log_dir_6)
+        .expect("Failed to undo hex-edit");
 
     let result = fs::read_to_string(&test6_file)?;
     assert_eq!(result, "ABC", "TEST 6 FAILED: B should be restored");
     println!("   ✅ TEST 6 PASSED: Hex-edit undone\n");
 
     // Test redo
-    let redo_dir_6 = test_dir.join("changelog_redo_test6_hexedit");
-    button_undo_next_changelog_lifo(&test6_file, &redo_dir_6).expect("Failed to redo hex-edit");
+    let redo_dir_6 = test_dir.join("changelog_redo_test6_hexedittxt");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&test6_file, &redo_dir_6)
+        .expect("Failed to redo hex-edit");
 
     let result = fs::read_to_string(&test6_file)?;
     assert_eq!(result, "AZC", "TEST 6 REDO FAILED: Z should be restored");
@@ -440,7 +445,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test8_file, b"A")?;
 
     // Create some redo logs manually
-    let redo_dir_8 = test_dir.join("changelog_redo_test8_clear");
+    let redo_dir_8 = test_dir.join("changelog_redo_test8_cleartxt");
     fs::create_dir_all(&redo_dir_8)?;
     fs::write(redo_dir_8.join("0"), "rmv\n0\n")?;
     fs::write(redo_dir_8.join("1"), "rmv\n1\n")?;
@@ -494,61 +499,240 @@ fn main() -> std::io::Result<()> {
     println!("✓ Test 8: HIGH-LEVEL API - Clear all redo logs");
     println!("=============================================================\n");
 
-    // =========================================================================
-    // Manual Tests
-    // =========================================================================
-    println!("─────────────────────────────────────────────────────────────");
-    println!("Manual Tests");
-    println!("─────────────────────────────────────────────────────────────");
+    // // =========================================================================
+    // // Manual Tests
+    // // =========================================================================
+    // println!("─────────────────────────────────────────────────────────────");
+    // println!("Manual Tests");
+    // println!("─────────────────────────────────────────────────────────────");
 
-    let manual_add_testfile = test_dir.join("manual_a_test.txt");
+    // let manual_add_testfile = test_dir.join("manual_a_test.txt");
 
-    // Setup: Create empty file (simulating user removed 'a')
-    println!("1. Assuming you have an empty manual_a_test.txt, will add: a");
+    // // Setup: Create empty file (simulating user removed 'a')
+    // println!("1. Assuming you have an empty manual_a_test.txt, will add: a");
 
-    let content = fs::read_to_string(&manual_add_testfile)?;
-    println!(
-        "   File contents: {:?} (length: {})",
-        content,
-        content.len()
-    );
-
-    // Create changelog: add 61 ('a') at position 0
-    println!("Creating changelog: ADD 0x61 ('a') at position 0");
-    let log_dir_manual_test_add = test_dir.join("manual_a_test");
-    button_add_byte_make_log_file(
-        &fs::canonicalize(&manual_add_testfile)?,
-        0,
-        0x61, // 'a'
-        &log_dir_manual_test_add,
-    )
-    .expect("Failed to create add log");
-    println!(
-        "   ✓ Changelog created in: {}",
-        log_dir_manual_test_add.display()
-    );
-
-    // Execute undo (should add 'a' back)
-    println!("Executing add-operation (should add 'a')");
-    button_undo_next_changelog_lifo(&manual_add_testfile, &log_dir_manual_test_add)
-        .expect("Failed to undo add");
-    let result = fs::read_to_string(&manual_add_testfile)?;
-    println!("   File after undo: {:?}", result);
-    assert_eq!(result, "a", "TEST FAILED: File should contain 'a'");
-    println!("   ✅ TEST PASSED: 'a' added\n");
-
-    // // Test REDO functionality
-    // println!("4. Testing REDO (should remove 'a' again)");
-    // let redo_dir_add = test_dir.join("changelog_redo_add_test");
-    // button_undo_next_changelog_lifo(&add_test_file, &redo_dir_add).expect("Failed to redo add");
-    // let result = fs::read_to_string(&add_test_file)?;
+    // let content = fs::read_to_string(&manual_add_testfile)?;
     // println!(
-    //     "   File after redo: {:?} (length: {})",
-    //     result,
-    //     result.len()
+    //     "   File contents: {:?} (length: {})",
+    //     content,
+    //     content.len()
     // );
-    // assert_eq!(result, "", "TEST 3 REDO FAILED: File should be empty");
-    // println!("   ✅ TEST 3 REDO PASSED: 'a' removed again\n");
+
+    // // Create changelog: add 61 ('a') at position 0
+    // println!("Creating changelog: ADD 0x61 ('a') at position 0");
+    // let log_dir_manual_test_add = test_dir.join("manual_a_testtxt");
+    // button_add_byte_make_log_file(
+    //     &fs::canonicalize(&manual_add_testfile)?,
+    //     0,
+    //     0x61, // 'a'
+    //     &log_dir_manual_test_add,
+    // )
+    // .expect("Failed to create add log");
+    // println!(
+    //     "   ✓ Changelog created in: {}",
+    //     log_dir_manual_test_add.display()
+    // );
+
+    // // Execute undo (should add 'a' back)
+    // println!("Executing add-operation (should add 'a')");
+    // button_undo_redo_next_inverse_changelog_pop_lifo(&manual_add_testfile, &log_dir_manual_test_add)
+    //     .expect("Failed to undo add");
+    // let result = fs::read_to_string(&manual_add_testfile)?;
+    // println!("   File after undo: {:?}", result);
+    // assert_eq!(result, "a", "TEST FAILED: File should contain 'a'");
+    // println!("   ✅ TEST PASSED: 'a' added\n");
+
+    // =========================================================================
+    // MANUAL TEST: Interactive Walkthrough
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("MANUAL TEST: Interactive Undo/Redo Walkthrough");
+    println!("─────────────────────────────────────────────────────────────");
+    println!();
+
+    let manual_test_file = test_dir.join("manual_test.txt");
+    let manual_log_dir = test_dir.join("changelog_manual_testtxt");
+    let manual_redo_dir = test_dir.join("changelog_redo_manual_testtxt");
+
+    // =========================================
+    // Step 1: Create empty file
+    // =========================================
+    println!("STEP 1: Starting with EMPTY FILE");
+    println!("─────────────────────────────────────────────────────────────");
+    fs::write(&manual_test_file, b"")?;
+    println!("File: {}", manual_test_file.display());
+    println!("Content: (empty)");
+    println!("File size: 0 bytes");
+    println!();
+    println!("Press ENTER to continue...");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    println!();
+
+    // =========================================
+    // Step 2: User adds 'a' (log says remove)
+    // =========================================
+    println!("STEP 2: USER ADDS CHARACTER 'a'");
+    println!("─────────────────────────────────────────────────────────────");
+    fs::write(&manual_test_file, b"a")?;
+    println!("File content: 'a'");
+    println!("File size: 1 byte");
+    println!();
+
+    println!("Creating changelog: RMV at position 0");
+    button_remove_byte_make_log_file(&fs::canonicalize(&manual_test_file)?, 0, &manual_log_dir)
+        .expect("Failed to create log");
+    println!("✓ Changelog created in: {}", manual_log_dir.display());
+    println!();
+    println!("Press ENTER to continue...");
+    std::io::stdin().read_line(&mut input)?;
+    println!();
+
+    // =========================================
+    // Step 3: User performs UNDO
+    // =========================================
+    println!("STEP 3: USER PERFORMS UNDO");
+    println!("─────────────────────────────────────────────────────────────");
+    println!("Executing: button_undo_redo_next_inverse_changelog_pop_lifo()");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&manual_test_file, &manual_log_dir)
+        .expect("Failed to undo");
+    println!("✓ Undo operation completed");
+    println!();
+
+    let undo_result = fs::read_to_string(&manual_test_file)?;
+    println!("File content after undo: {:?}", undo_result);
+    println!("File size: {} bytes", undo_result.len());
+    println!();
+
+    if undo_result.is_empty() {
+        println!("✅ CORRECT: 'a' was removed (file is empty again)");
+    } else {
+        println!(
+            "❌ ERROR: File should be empty but contains: {:?}",
+            undo_result
+        );
+    }
+    println!();
+    println!("Notice: Redo logs were automatically created in:");
+    println!("{}", manual_redo_dir.display());
+    println!();
+    println!("Press ENTER to continue...");
+    std::io::stdin().read_line(&mut input)?;
+    println!();
+
+    // =========================================
+    // Step 4: User performs REDO
+    // =========================================
+    println!("STEP 4: USER PERFORMS REDO");
+    println!("─────────────────────────────────────────────────────────────");
+    println!("Executing: button_undo_redo_next_inverse_changelog_pop_lifo() with REDO directory");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&manual_test_file, &manual_redo_dir)
+        .expect("Failed to redo");
+    println!("✓ Redo operation completed");
+    println!();
+
+    let redo_result = fs::read_to_string(&manual_test_file)?;
+    println!("File content after redo: {:?}", redo_result);
+    println!("File size: {} bytes", redo_result.len());
+    println!();
+
+    if redo_result == "a" {
+        println!("✅ CORRECT: 'a' was restored (file contains 'a' again)");
+    } else {
+        println!(
+            "❌ ERROR: File should contain 'a' but contains: {:?}",
+            redo_result
+        );
+    }
+    println!();
+    println!("Notice: The system automatically detected the redo directory");
+    println!("and did NOT create another redo log (prevents infinite loops)");
+    println!();
+    println!("Press ENTER to continue...");
+    std::io::stdin().read_line(&mut input)?;
+    println!();
+
+    // =========================================
+    // Step 5: User makes NEW edit (clears redo)
+    // =========================================
+    println!("STEP 5: USER MAKES NEW EDIT (adds 'b')");
+    println!("─────────────────────────────────────────────────────────────");
+    fs::write(&manual_test_file, b"ab")?;
+    println!("File content: 'ab'");
+    println!();
+
+    println!("Creating new changelog: RMV at position 1 for 'b'");
+    button_remove_byte_make_log_file(&fs::canonicalize(&manual_test_file)?, 1, &manual_log_dir)
+        .expect("Failed to create log");
+    println!("✓ New changelog created");
+    println!();
+
+    println!("Clearing redo logs (new edit invalidates redo history)");
+    _ = button_clear_all_redo_logs(&manual_test_file);
+    println!("✓ Redo logs cleared");
+    println!();
+    println!("Notice: The redo directory is now empty");
+    println!("This is crucial: after a new edit, you can't redo the old 'a' anymore");
+    println!();
+    println!("Press ENTER to continue...");
+    std::io::stdin().read_line(&mut input)?;
+    println!();
+
+    // =========================================
+    // Step 6: Try to redo (should fail - no logs)
+    // =========================================
+    println!("STEP 6: ATTEMPT TO REDO (should fail - no logs)");
+    println!("─────────────────────────────────────────────────────────────");
+    println!("Attempting: button_undo_redo_next_inverse_changelog_pop_lifo() with REDO directory");
+
+    match button_undo_redo_next_inverse_changelog_pop_lifo(&manual_test_file, &manual_redo_dir) {
+        Ok(_) => {
+            println!("❌ ERROR: Should have failed (no redo logs)");
+        }
+        Err(e) => {
+            println!("✓ Operation failed as expected");
+            println!("Error: {}", e);
+            println!();
+            println!("✅ CORRECT: Cannot redo because redo logs were cleared");
+        }
+    }
+    println!();
+    println!("Press ENTER to continue...");
+    std::io::stdin().read_line(&mut input)?;
+    println!();
+
+    // =========================================
+    // Step 7: Undo the new 'b' addition
+    // =========================================
+    println!("STEP 7: UNDO THE NEW 'b' ADDITION");
+    println!("─────────────────────────────────────────────────────────────");
+    println!("File before undo: 'ab'");
+    button_undo_redo_next_inverse_changelog_pop_lifo(&manual_test_file, &manual_log_dir)
+        .expect("Failed to undo");
+
+    let final_result = fs::read_to_string(&manual_test_file)?;
+    println!("File after undo: {:?}", final_result);
+    println!();
+
+    if final_result == "a" {
+        println!("✅ CORRECT: Back to 'a' (only 'b' was removed)");
+    }
+    println!();
+
+    println!();
+    println!("Press ENTER to remove test files...");
+    std::io::stdin().read_line(&mut input)?;
+    println!();
+
+    // Cleanup
+    let _ = fs::remove_file(&manual_test_file);
+    let _ = fs::remove_dir_all(&manual_log_dir);
+    let _ = fs::remove_dir_all(&manual_redo_dir);
+
+    println!("─────────────────────────────────────────────────────────────");
+    println!("MANUAL TEST COMPLETE");
+    println!("─────────────────────────────────────────────────────────────");
+    println!();
 
     Ok(())
 }

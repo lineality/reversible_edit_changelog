@@ -5,9 +5,9 @@ target
 
 archive
 
-changelog_multibyte_test
-changelog_redo_multibyte_test
-changelog_redo_test5_character
+changelog_*
+changelog_redo_*
+changelog_redo_*
 
 add_edit_test.txt
 multibyte_test.txt
