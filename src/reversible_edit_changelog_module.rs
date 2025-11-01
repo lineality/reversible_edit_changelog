@@ -4223,7 +4223,7 @@ pub const REDO_LOG_DIR_PREFIX: &str = "changelog_redo_";
 
 /// Error log directory name prefix
 /// Full name format: "undoredo_errorlogs_{filename_without_extension}"
-pub const ERROR_LOG_DIR_PREFIX: &str = "undoredo_errorlogs_";
+// pub const ERROR_LOG_DIR_PREFIX: &str = "undoredo_errorlogs_";
 
 /// Gets the letter suffix for a multi-byte log file
 ///
@@ -5337,121 +5337,6 @@ fn find_next_lifo_log_file(log_dir: &Path) -> ButtonResult<PathBuf> {
     }
 }
 
-/// Performs undo operation for next single-byte changelog in LIFO order
-///
-/// # Purpose
-/// Main undo function for single-byte operations:
-/// 1. Finds the next log file (highest numbered)
-/// 2. Reads and parses the log file
-/// 3. Executes the undo operation on the target file
-/// 4. Removes the log file after successful undo
-///
-/// # Arguments
-/// * `target_file` - File to perform undo on (absolute path)
-/// * `log_dir` - Directory containing changelog files (absolute path)
-///
-/// # Returns
-/// * `ButtonResult<()>` - Success or error
-///
-/// # Behavior on Error
-/// - If log file is malformed: quarantine it and return error
-/// - If file operation fails: leave log file in place, return error
-/// - If undo succeeds: delete log file
-///
-/// # Examples
-/// ```
-/// // Undo the most recent single-byte edit
-/// button_undo_single_byte_changelog(
-///     &Path::new("/absolute/path/to/file.txt"),
-///     &Path::new("/absolute/path/to/changelog_file")
-/// )?;
-/// ```
-fn button_undo_single_byte_changelog(target_file: &Path, log_dir: &Path) -> ButtonResult<()> {
-    // =================================================
-    // Debug-Assert, Test-Assert, Production-Catch-Handle
-    // =================================================
-
-    debug_assert!(
-        target_file.is_absolute(),
-        "Target file must be absolute path"
-    );
-
-    #[cfg(test)]
-    assert!(
-        target_file.is_absolute(),
-        "Target file must be absolute path"
-    );
-
-    if !target_file.is_absolute() {
-        return Err(ButtonError::AssertionViolation {
-            check: "Target file path must be absolute",
-        });
-    }
-
-    debug_assert!(log_dir.is_absolute(), "Log directory must be absolute path");
-
-    #[cfg(test)]
-    assert!(log_dir.is_absolute(), "Log directory must be absolute path");
-
-    if !log_dir.is_absolute() {
-        return Err(ButtonError::AssertionViolation {
-            check: "Log directory path must be absolute",
-        });
-    }
-
-    // Step 1: Find next log file
-    let log_file_path = find_next_lifo_log_file(log_dir)?;
-
-    #[cfg(debug_assertions)]
-    println!("Undoing log file: {}", log_file_path.display());
-
-    // Step 2: Read and parse log file
-    let log_entry = match read_log_file(&log_file_path) {
-        Ok(entry) => entry,
-        Err(e) => {
-            // Log is malformed - quarantine it
-            quarantine_bad_log(target_file, &log_file_path, "Failed to parse log file");
-            return Err(e);
-        }
-    };
-
-    // Step 3: Execute undo operation
-    match execute_log_entry(target_file, &log_entry) {
-        Ok(()) => {
-            #[cfg(debug_assertions)]
-            println!("Undo operation successful");
-
-            // Step 4: Remove log file after successful undo
-            if let Err(e) = fs::remove_file(&log_file_path) {
-                #[cfg(debug_assertions)]
-                eprintln!("Warning: Could not remove log file after undo: {}", e);
-
-                // Non-fatal: log file remains but undo succeeded
-                log_button_error(
-                    target_file,
-                    &format!("Could not remove log file after successful undo: {}", e),
-                    Some("button_undo_single_byte_changelog"),
-                );
-            }
-
-            Ok(())
-        }
-        Err(e) => {
-            // Undo operation failed - leave log file in place
-            #[cfg(debug_assertions)]
-            eprintln!("Undo operation failed: {}", e);
-
-            log_button_error(
-                target_file,
-                &format!("Undo operation failed: {}", e),
-                Some("button_undo_single_byte_changelog"),
-            );
-
-            Err(e)
-        }
-    }
-}
-
 // ============================================================================
 // UNIT TESTS FOR UNDO OPERATIONS
 // ============================================================================
@@ -5561,7 +5446,7 @@ mod undo_tests {
         fs::write(&target_file, b"ABCD").unwrap(); // Position 2 needs 'X' added
 
         // Perform undo (should add 'X' at position 2)
-        button_undo_single_byte_changelog(&target_abs, &log_dir_abs).unwrap();
+        button_undo_single_byte_with_redo_support(&target_abs, &log_dir_abs, false, None).unwrap();
 
         // Verify: Byte was added at position 2
         let content = fs::read(&target_file).unwrap();
@@ -5597,7 +5482,7 @@ mod undo_tests {
         button_remove_byte_make_log_file(&target_abs, 2, &log_dir_abs).unwrap();
 
         // Perform undo (should remove byte at position 2)
-        button_undo_single_byte_changelog(&target_abs, &log_dir_abs).unwrap();
+        button_undo_single_byte_with_redo_support(&target_abs, &log_dir_abs, false, None).unwrap();
 
         // Verify: Byte was removed from position 2
         let content = fs::read(&target_file).unwrap();
@@ -5629,7 +5514,7 @@ mod undo_tests {
         button_hexeditinplace_byte_make_log_file(&target_abs, 2, 0x43, &log_dir_abs).unwrap();
 
         // Perform undo (should restore 'C' at position 2)
-        button_undo_single_byte_changelog(&target_abs, &log_dir_abs).unwrap();
+        button_undo_single_byte_with_redo_support(&target_abs, &log_dir_abs, false, None).unwrap();
 
         // Verify: Original byte was restored
         let content = fs::read(&target_file).unwrap();
@@ -5660,17 +5545,17 @@ mod undo_tests {
         button_remove_byte_make_log_file(&target_abs, 4, &log_dir_abs).unwrap(); // Log 2
 
         // Undo first (should undo log 2: remove at position 4, removing 'Z')
-        button_undo_single_byte_changelog(&target_abs, &log_dir_abs).unwrap();
+        button_undo_single_byte_with_redo_support(&target_abs, &log_dir_abs, false, None).unwrap();
         let content = fs::read(&target_file).unwrap();
         assert_eq!(content, b"ABXYCD", "First undo should remove Z");
 
         // Undo second (should undo log 1: remove at position 3, removing 'Y')
-        button_undo_single_byte_changelog(&target_abs, &log_dir_abs).unwrap();
+        button_undo_single_byte_with_redo_support(&target_abs, &log_dir_abs, false, None).unwrap();
         let content = fs::read(&target_file).unwrap();
         assert_eq!(content, b"ABXCD", "Second undo should remove Y");
 
         // Undo third (should undo log 0: remove at position 2, removing 'X')
-        button_undo_single_byte_changelog(&target_abs, &log_dir_abs).unwrap();
+        button_undo_single_byte_with_redo_support(&target_abs, &log_dir_abs, false, None).unwrap();
         let content = fs::read(&target_file).unwrap();
         assert_eq!(content, b"ABCD", "Third undo should remove X");
 
@@ -6303,171 +6188,6 @@ fn find_next_multibyte_lifo_log_set(log_dir: &Path) -> ButtonResult<Vec<PathBuf>
     find_multibyte_log_set(log_dir, base_number)
 }
 
-/// Performs undo operation for next multi-byte changelog in LIFO order
-///
-/// # Purpose
-/// Main undo function for multi-byte operations:
-/// 1. Finds the next log set (highest numbered bare file + letters)
-/// 2. Reads and parses each log file in LIFO order
-/// 3. Executes undo operations in sequence
-/// 4. Removes log files after successful undo
-///
-/// # Arguments
-/// * `target_file` - File to perform undo on (absolute path)
-/// * `log_dir` - Directory containing changelog files (absolute path)
-///
-/// # Returns
-/// * `ButtonResult<()>` - Success or error
-///
-/// # LIFO Execution Order
-/// For log set "10.b", "10.a", "10":
-/// - Execute 10.b first (last byte operation)
-/// - Execute 10.a second (middle byte operation)
-/// - Execute 10 last (first byte operation)
-///
-/// # Error Handling
-/// - If any log is malformed: quarantine entire set, return error
-/// - If any operation fails: leave all logs in place, return error
-/// - If all succeed: remove all log files in set
-fn button_undo_multibyte_changelog(target_file: &Path, log_dir: &Path) -> ButtonResult<()> {
-    // =================================================
-    // Debug-Assert, Test-Assert, Production-Catch-Handle
-    // =================================================
-
-    debug_assert!(
-        target_file.is_absolute(),
-        "Target file must be absolute path"
-    );
-
-    #[cfg(test)]
-    assert!(
-        target_file.is_absolute(),
-        "Target file must be absolute path"
-    );
-
-    if !target_file.is_absolute() {
-        return Err(ButtonError::AssertionViolation {
-            check: "Target file path must be absolute",
-        });
-    }
-
-    debug_assert!(log_dir.is_absolute(), "Log directory must be absolute path");
-
-    #[cfg(test)]
-    assert!(log_dir.is_absolute(), "Log directory must be absolute path");
-
-    if !log_dir.is_absolute() {
-        return Err(ButtonError::AssertionViolation {
-            check: "Log directory path must be absolute",
-        });
-    }
-
-    // Step 1: Find next multi-byte log set
-    let log_files = find_next_multibyte_lifo_log_set(log_dir)?;
-
-    #[cfg(debug_assertions)]
-    {
-        println!("Undoing multi-byte log set ({} files):", log_files.len());
-        for log_file in &log_files {
-            println!("  - {}", log_file.display());
-        }
-    }
-
-    // Step 2: Read and parse all log files
-    let mut log_entries = Vec::with_capacity(log_files.len());
-
-    for log_file_path in &log_files {
-        match read_log_file(log_file_path) {
-            Ok(entry) => log_entries.push(entry),
-            Err(e) => {
-                // Log is malformed - quarantine entire set
-                for bad_log in &log_files {
-                    quarantine_bad_log(
-                        target_file,
-                        bad_log,
-                        "Part of malformed multi-byte log set",
-                    );
-                }
-                return Err(e);
-            }
-        }
-    }
-
-    // Step 3: Execute all undo operations in sequence
-    // Bounded loop: max 4 iterations (MAX_UTF8_BYTES)
-    for (i, log_entry) in log_entries.iter().enumerate() {
-        // =================================================
-        // Debug-Assert, Test-Assert, Production-Catch-Handle
-        // =================================================
-
-        debug_assert!(
-            i < MAX_UTF8_BYTES,
-            "Log entry index exceeded max UTF-8 bytes"
-        );
-
-        #[cfg(test)]
-        assert!(
-            i < MAX_UTF8_BYTES,
-            "Log entry index exceeded max UTF-8 bytes"
-        );
-
-        if i >= MAX_UTF8_BYTES {
-            return Err(ButtonError::AssertionViolation {
-                check: "Too many log entries in set",
-            });
-        }
-
-        match execute_log_entry(target_file, log_entry) {
-            Ok(()) => {
-                #[cfg(debug_assertions)]
-                println!("  Executed log entry {}/{}", i + 1, log_entries.len());
-            }
-            Err(e) => {
-                // Operation failed - leave all logs in place
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "  Failed at log entry {}/{}: {}",
-                    i + 1,
-                    log_entries.len(),
-                    e
-                );
-
-                log_button_error(
-                    target_file,
-                    &format!("Multi-byte undo failed at entry {}: {}", i + 1, e),
-                    Some("button_undo_multibyte_changelog"),
-                );
-
-                return Err(e);
-            }
-        }
-    }
-
-    // Step 4: Remove all log files after successful undo
-    for log_file_path in &log_files {
-        if let Err(e) = fs::remove_file(log_file_path) {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "Warning: Could not remove log file {}: {}",
-                log_file_path.display(),
-                e
-            );
-
-            // Non-fatal: log file remains but undo succeeded
-            log_button_error(
-                target_file,
-                &format!("Could not remove log file after undo: {}", e),
-                Some("button_undo_multibyte_changelog"),
-            );
-        }
-    }
-
-    #[cfg(debug_assertions)]
-    println!("Multi-byte undo completed successfully");
-
-    Ok(())
-}
-
 // ============================================================================
 // UNIT TESTS FOR MULTI-BYTE OPERATIONS
 // ============================================================================
@@ -6606,7 +6326,7 @@ mod multibyte_tests {
         button_remove_multibyte_make_log_files(&target_abs, 2, 3, &log_dir_abs).unwrap();
 
         // Perform undo (should remove 3 bytes at position 2)
-        button_undo_multibyte_changelog(&target_abs, &log_dir_abs).unwrap();
+        button_undo_multibyte_with_redo_support(&target_abs, &log_dir_abs, false, None).unwrap();
 
         // Verify: 阿 was removed, file is now "ABCD"
         let content = fs::read(&target_file).unwrap();
@@ -6861,117 +6581,6 @@ pub fn button_make_hexedit_changelog(
         &log_dir_abs,
     )
 }
-
-// // no redo
-// /// Undoes the next changelog entry in LIFO order (high-level API)
-// ///
-// /// # Purpose
-// /// Main entry point for undo operations. Automatically detects whether
-// /// the next log is single-byte or multi-byte and calls the appropriate
-// /// undo function.
-// ///
-// /// # Arguments
-// /// * `target_file` - File to perform undo on (will be converted to absolute path)
-// /// * `log_directory_path` - Directory containing changelog files
-// ///
-// /// # Returns
-// /// * `ButtonResult<()>` - Success or error
-// ///
-// /// # Detection Logic
-// /// Finds the highest-numbered bare log file (no letter suffix), then:
-// /// - If no letter-suffix files exist → single-byte undo
-// /// - If letter-suffix files exist (e.g., 10.a, 10.b) → multi-byte undo
-// ///
-// /// # LIFO Behavior
-// /// Always processes the most recent change first (highest number).
-// ///
-// /// # Error Handling
-// /// - No logs found → returns NoLogsFound error
-// /// - Malformed logs → quarantines and returns error
-// /// - File operation fails → leaves logs in place, returns error
-// /// - Success → removes processed log file(s)
-// ///
-// /// # Examples
-// /// ```
-// /// // Undo the most recent change (single or multi-byte)
-// /// button_undo_next_changelog_lifo(
-// ///     Path::new("file.txt"),
-// ///     Path::new("./changelog_file")
-// /// )?;
-// /// ```
-// pub fn button_undo_next_changelog_lifo(
-//     target_file: &Path,
-//     log_directory_path: &Path,
-// ) -> ButtonResult<()> {
-//     // Convert paths to absolute
-//     let target_file_abs = fs::canonicalize(target_file).map_err(|e| {
-//         ButtonError::Io(io::Error::new(
-//             io::ErrorKind::NotFound,
-//             format!("Cannot resolve target file path: {}", e),
-//         ))
-//     })?;
-
-//     let log_dir_abs = fs::canonicalize(log_directory_path).map_err(|e| {
-//         ButtonError::Io(io::Error::new(
-//             io::ErrorKind::NotFound,
-//             format!("Cannot resolve log directory path: {}", e),
-//         ))
-//     })?;
-
-//     #[cfg(debug_assertions)]
-//     println!("Finding next changelog to undo...");
-
-//     // Find the next bare log file (highest number without letter suffix)
-//     let next_bare_log = find_next_lifo_log_file(&log_dir_abs)?;
-
-//     // Extract number from filename
-//     let filename = next_bare_log
-//         .file_name()
-//         .ok_or_else(|| ButtonError::LogDirectoryError {
-//             path: next_bare_log.clone(),
-//             reason: "Invalid log filename",
-//         })?
-//         .to_string_lossy();
-
-//     let base_number = filename
-//         .parse::<u128>()
-//         .map_err(|_| ButtonError::MalformedLog {
-//             log_path: next_bare_log.clone(),
-//             reason: "Cannot parse log number",
-//         })?;
-
-//     #[cfg(debug_assertions)]
-//     println!("  Found base log number: {}", base_number);
-
-//     // Check for letter-suffix files to determine if multi-byte
-//     let mut has_letter_files = false;
-
-//     // Bounded loop: check for letters a, b, c (max 3)
-//     for i in 0..(MAX_UTF8_BYTES - 1) {
-//         let letter = LOG_LETTER_SEQUENCE[i];
-//         let letter_path = log_dir_abs.join(format!("{}.{}", base_number, letter));
-
-//         if letter_path.exists() {
-//             has_letter_files = true;
-//             #[cfg(debug_assertions)]
-//             println!("  Found letter file: {}.{}", base_number, letter);
-//             break;
-//         }
-//     }
-
-//     // Route to appropriate undo function
-//     if has_letter_files {
-//         #[cfg(debug_assertions)]
-//         println!("  Routing to multi-byte undo");
-
-//         button_undo_multibyte_changelog(&target_file_abs, &log_dir_abs)
-//     } else {
-//         #[cfg(debug_assertions)]
-//         println!("  Routing to single-byte undo");
-
-//         button_undo_single_byte_changelog(&target_file_abs, &log_dir_abs)
-//     }
-// }
 
 // ============================================================================
 // REDO SUPPORT - HELPER FUNCTIONS
@@ -7837,94 +7446,6 @@ fn create_inverse_redo_log(
 
     Ok(())
 }
-
-// /// Creates inverse redo logs for a multi-byte operation
-// ///
-// /// # Purpose
-// /// After successfully undoing a multi-byte operation, create the inverse log entries
-// /// in the redo directory.
-// ///
-// /// # Arguments
-// /// * `target_file` - Target file (for error logging)
-// /// * `redo_dir` - Redo directory to write logs to
-// /// * `undo_log_entries` - The log entries we just executed
-// /// * `captured_bytes` - Bytes captured before destruction (for Rmv/Edt)
-// ///
-// /// # Returns
-// /// * `ButtonResult<()>` - Success or error
-// fn create_inverse_redo_logs_multibyte(
-//     target_file: &Path,
-//     redo_dir: &Path,
-//     undo_log_entries: &[LogEntry],
-//     captured_bytes: &[Option<u8>],
-// ) -> ButtonResult<()> {
-//     #[cfg(debug_assertions)]
-//     println!("Creating inverse redo logs for multi-byte operation...");
-
-//     // Get base log number for redo logs
-//     let base_log_number = get_next_log_number(redo_dir)?;
-//     let byte_count = undo_log_entries.len();
-
-//     // Bounded loop: max 4 iterations
-//     for (i, undo_log_entry) in undo_log_entries.iter().enumerate() {
-//         if i >= MAX_UTF8_BYTES {
-//             return Err(ButtonError::AssertionViolation {
-//                 check: "Too many log entries",
-//             });
-//         }
-
-//         let position = undo_log_entry.position();
-//         let captured_byte = captured_bytes.get(i).and_then(|b| *b);
-
-//         // Build inverse log entry
-//         let inverse_log_entry = match undo_log_entry.edit_type() {
-//             EditType::Rmv => {
-//                 let byte = captured_byte.ok_or_else(|| ButtonError::InvalidUtf8 {
-//                     position,
-//                     byte_count: i + 1,
-//                     reason: "Cannot create redo log: no byte was captured",
-//                 })?;
-
-//                 LogEntry::new(EditType::Add, position, Some(byte))
-//                     .map_err(|e| ButtonError::AssertionViolation { check: e })?
-//             }
-
-//             EditType::Add => LogEntry::new(EditType::Rmv, position, None)
-//                 .map_err(|e| ButtonError::AssertionViolation { check: e })?,
-
-//             EditType::Edt => {
-//                 let byte = captured_byte.ok_or_else(|| ButtonError::InvalidUtf8 {
-//                     position,
-//                     byte_count: i + 1,
-//                     reason: "Cannot create redo log: no byte was captured",
-//                 })?;
-
-//                 LogEntry::new(EditType::Edt, position, Some(byte))
-//                     .map_err(|e| ButtonError::AssertionViolation { check: e })?
-//             }
-//         };
-
-//         // Get letter suffix
-//         let letter_suffix = get_log_file_letter_suffix(i, byte_count);
-
-//         // Build filename
-//         let filename = match letter_suffix {
-//             Some(letter) => format!("{}.{}", base_log_number, letter),
-//             None => base_log_number.to_string(),
-//         };
-
-//         let log_file_path = redo_dir.join(&filename);
-
-//         // Serialize and write
-//         let log_content = inverse_log_entry.to_file_format();
-//         fs::write(&log_file_path, log_content).map_err(|e| ButtonError::Io(e))?;
-
-//         #[cfg(debug_assertions)]
-//         println!("  Created redo log file: {}", filename);
-//     }
-
-//     Ok(())
-// }
 
 /// Creates inverse redo logs for a multi-byte operation
 ///
