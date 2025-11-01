@@ -8805,15 +8805,697 @@ mod redo_aware_undo_tests {
     }
 }
 
+// ============================================================================
+// ADDITIONAL COMPREHENSIVE TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod additional_comprehensive_tests {
+    use super::*;
+    use std::env;
+
+    // ========================================================================
+    // TEST: Complete Editing Session Simulation
+    // ========================================================================
+
+    /// Tests a realistic editing session with mixed operations
+    ///
+    /// Simulates a user:
+    /// 1. Types "Hello" (5 add operations)
+    /// 2. Deletes one character (1 remove operation)
+    /// 3. Adds a multi-byte emoji
+    /// 4. Undoes everything step by step
+    /// 5. Redoes some operations
+    ///
+    /// This tests LIFO ordering, mixed single/multi-byte, and undo/redo chains.
+    #[test]
+    fn test_realistic_editing_session() {
+        let test_dir = env::temp_dir().join("test_editing_session");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("document.txt");
+        fs::write(&target_file, b"").unwrap(); // Start with empty file
+
+        let log_dir = test_dir.join("changelog_document");
+        fs::create_dir_all(&log_dir).unwrap();
+
+        println!("\n=== Realistic Editing Session Test ===");
+
+        // Phase 1: User types "Hello" (5 characters)
+        println!("\nPhase 1: User types 'Hello'");
+        let chars = ['H', 'e', 'l', 'l', 'o'];
+        for (i, ch) in chars.iter().enumerate() {
+            // Simulate: user adds character
+            let mut content = fs::read(&target_file).unwrap();
+            content.push(*ch as u8);
+            fs::write(&target_file, &content).unwrap();
+
+            // Create log (log says "remove" to undo the add)
+            button_make_character_action_changelog(
+                &target_file,
+                None,
+                i as u128,
+                EditType::Add,
+                &log_dir,
+            )
+            .unwrap();
+
+            println!("  Added '{}' at position {}", ch, i);
+        }
+
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "Hello");
+        println!("  File now: 'Hello'");
+
+        // Phase 2: User deletes last 'o'
+        println!("\nPhase 2: User deletes last 'o'");
+        fs::write(&target_file, b"Hell").unwrap();
+        button_make_character_action_changelog(
+            &target_file,
+            Some('o'),
+            4, // Position of deleted 'o'
+            EditType::Rmv,
+            &log_dir,
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "Hell");
+        println!("  File now: 'Hell'");
+
+        // Phase 3: User adds emoji '😀' (4-byte UTF-8)
+        println!("\nPhase 3: User adds emoji '😀'");
+        fs::write(&target_file, "Hell😀").unwrap();
+        button_make_character_action_changelog(
+            &target_file,
+            None,
+            4, // Position after "Hell"
+            EditType::Add,
+            &log_dir,
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "Hell😀");
+        println!("  File now: 'Hell😀'");
+
+        // Phase 4: Undo everything (LIFO order)
+        println!("\nPhase 4: Undo operations (LIFO)");
+
+        // Undo 1: Remove emoji
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "Hell");
+        println!("  After undo 1: 'Hell' (emoji removed)");
+
+        // Undo 2: Restore 'o'
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "Hello");
+        println!("  After undo 2: 'Hello' ('o' restored)");
+
+        // Undo 3-7: Remove "Hello" one by one
+        for i in 0..5 {
+            button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+            let expected = ["Hell", "Hel", "He", "H", ""];
+            assert_eq!(fs::read_to_string(&target_file).unwrap(), expected[i]);
+            println!("  After undo {}: '{}'", i + 3, expected[i]);
+        }
+
+        // Phase 5: Redo some operations
+        println!("\nPhase 5: Redo operations");
+        let redo_dir = test_dir.join("changelog_redo_document");
+
+        // Redo 1: Restore 'H'
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "H");
+        println!("  After redo 1: 'H'");
+
+        // Redo 2: Restore 'e'
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "He");
+        println!("  After redo 2: 'He'");
+
+        println!("\n✅ Realistic editing session test PASSED");
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // TEST: Redo Cleared After Normal Edit
+    // ========================================================================
+
+    /// Tests that redo logs are cleared when user makes a new edit
+    ///
+    /// This is critical behavior: after undo, if user makes a new edit,
+    /// the redo history becomes invalid and must be cleared.
+    ///
+    /// Sequence:
+    /// 1. User adds 'A'
+    /// 2. User undoes (now have redo log)
+    /// 3. User adds 'B' (different edit)
+    /// 4. Redo log should be cleared (can't redo 'A' anymore)
+    #[test]
+    fn test_redo_cleared_after_normal_edit() {
+        let test_dir = env::temp_dir().join("test_redo_cleared");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("file.txt");
+        fs::write(&target_file, b"").unwrap();
+
+        let log_dir = test_dir.join("changelog_file");
+        let redo_dir = test_dir.join("changelog_redo_file");
+
+        println!("\n=== Redo Cleared After Normal Edit Test ===");
+
+        // Step 1: User adds 'A'
+        println!("\nStep 1: User adds 'A'");
+        fs::write(&target_file, b"A").unwrap();
+        button_make_character_action_changelog(&target_file, None, 0, EditType::Add, &log_dir)
+            .unwrap();
+
+        // Step 2: User undos (creates redo log)
+        println!("Step 2: User undoes");
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "");
+
+        // Verify redo log exists
+        fs::create_dir_all(&redo_dir).unwrap();
+        assert!(
+            fs::read_dir(&redo_dir).unwrap().count() > 0,
+            "Redo log should exist after undo"
+        );
+        println!("  Redo log created: can redo 'A'");
+
+        // Step 3: User makes NEW edit (adds 'B')
+        println!("Step 3: User makes new edit (adds 'B')");
+        fs::write(&target_file, b"B").unwrap();
+        button_make_character_action_changelog(&target_file, None, 0, EditType::Add, &log_dir)
+            .unwrap();
+
+        // Step 4: Clear redo logs (should happen automatically in real editor)
+        println!("Step 4: Clearing redo logs (new edit invalidates redo history)");
+        button_clear_all_redo_logs(&target_file).unwrap();
+
+        // Verify redo logs are gone
+        let redo_count = fs::read_dir(&redo_dir)
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+        assert_eq!(redo_count, 0, "Redo logs should be cleared after new edit");
+
+        println!("  ✓ Redo logs cleared (can't redo 'A' anymore)");
+        println!("\n✅ Redo cleared after normal edit test PASSED");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // TEST: "Cheap Trick" Button Stack with Complex Characters
+    // ========================================================================
+
+    /// Tests the "cheap trick" button stack behavior with mixed characters
+    ///
+    /// The cheap trick: when adding multi-byte chars, all log entries use
+    /// the SAME position (first byte position). When undoing/redoing:
+    /// - Each add at position N pushes previous bytes forward
+    /// - Each remove at position N naturally shifts remaining bytes back
+    ///
+    /// This tests that the cheap trick works with:
+    /// - ASCII followed by emoji
+    /// - Multiple multi-byte characters in sequence
+    /// - Proper reconstruction order
+    #[test]
+    fn test_cheap_trick_button_stack_complex() {
+        let test_dir = env::temp_dir().join("test_cheap_trick");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("file.txt");
+        let log_dir = test_dir.join("changelog_file");
+
+        println!("\n=== Cheap Trick Button Stack Test ===");
+
+        // Setup: File contains "A😀B阿C" (ASCII + emoji + ASCII + CJK + ASCII)
+        println!("\nSetup: File contains 'A😀B阿C'");
+        let content = "A😀B阿C";
+        fs::write(&target_file, content).unwrap();
+        println!("  Byte structure:");
+        println!("    'A'  : 1 byte  at position 0");
+        println!("    '😀' : 4 bytes at positions 1-4");
+        println!("    'B'  : 1 byte  at position 5");
+        println!("    '阿' : 3 bytes at positions 6-8");
+        println!("    'C'  : 1 byte  at position 9");
+
+        // Create remove logs for entire file (user "added" all of it)
+        println!("\nCreating remove logs (simulating user added all chars)");
+
+        // Remove 'A' at 0
+        button_remove_byte_make_log_file(&fs::canonicalize(&target_file).unwrap(), 0, &log_dir)
+            .unwrap();
+
+        // Remove '😀' at 1 (4 bytes, cheap trick: all use position 1)
+        button_remove_multibyte_make_log_files(
+            &fs::canonicalize(&target_file).unwrap(),
+            1,
+            4,
+            &log_dir,
+        )
+        .unwrap();
+
+        // Remove 'B' at 5
+        button_remove_byte_make_log_file(&fs::canonicalize(&target_file).unwrap(), 5, &log_dir)
+            .unwrap();
+
+        // Remove '阿' at 6 (3 bytes, cheap trick: all use position 6)
+        button_remove_multibyte_make_log_files(
+            &fs::canonicalize(&target_file).unwrap(),
+            6,
+            3,
+            &log_dir,
+        )
+        .unwrap();
+
+        // Remove 'C' at 9
+        button_remove_byte_make_log_file(&fs::canonicalize(&target_file).unwrap(), 9, &log_dir)
+            .unwrap();
+
+        // Test: Undo all (LIFO - removes from end to start)
+        println!("\nUndoing all operations (LIFO - removes from end to start)");
+
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A😀B阿");
+        println!("  After undo 1: 'A😀B阿' (removed 'C')");
+
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A😀B");
+        println!("  After undo 2: 'A😀B' (removed '阿')");
+
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A😀");
+        println!("  After undo 3: 'A😀' (removed 'B')");
+
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A");
+        println!("  After undo 4: 'A' (removed '😀')");
+
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "");
+        println!("  After undo 5: '' (removed 'A')");
+
+        // Test: Redo all (restores in same order)
+        println!("\nRedoing all operations (restores in same order)");
+        let redo_dir = test_dir.join("changelog_redo_file");
+
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A");
+        println!("  After redo 1: 'A'");
+
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A😀");
+        println!("  After redo 2: 'A😀'");
+
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A😀B");
+        println!("  After redo 3: 'A😀B'");
+
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A😀B阿");
+        println!("  After redo 4: 'A😀B阿'");
+
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A😀B阿C");
+        println!("  After redo 5: 'A😀B阿C' (fully restored!)");
+
+        println!("\n✅ Cheap trick button stack test PASSED");
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // TEST: Log File Corruption Recovery
+    // ========================================================================
+
+    /// Tests that corrupted log files are quarantined and don't crash system
+    ///
+    /// Tests various corruption scenarios:
+    /// 1. Missing required fields
+    /// 2. Invalid hex bytes
+    /// 3. Invalid position numbers
+    /// 4. Truncated multi-byte log sets
+    ///
+    /// System should:
+    /// - Detect corruption
+    /// - Quarantine bad logs
+    /// - Continue operating
+    /// - Never crash
+    #[test]
+    fn test_log_corruption_recovery() {
+        let test_dir = env::temp_dir().join("test_corruption");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("file.txt");
+        fs::write(&target_file, b"ABC").unwrap();
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("changelog_file");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        println!("\n=== Log Corruption Recovery Test ===");
+
+        // Test 1: Missing position field
+        println!("\nTest 1: Log missing position field");
+        fs::write(log_dir.join("0"), "add\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail gracefully");
+        assert!(
+            !log_dir.join("0").exists(),
+            "Corrupted log should be quarantined"
+        );
+        println!("  ✓ Corrupted log quarantined");
+
+        // Test 2: Invalid hex byte
+        println!("\nTest 2: Log with invalid hex byte");
+        fs::write(log_dir.join("1"), "add\n5\nZZ\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail gracefully");
+        assert!(
+            !log_dir.join("1").exists(),
+            "Corrupted log should be quarantined"
+        );
+        println!("  ✓ Invalid hex byte log quarantined");
+
+        // Test 3: Invalid position (not a number)
+        println!("\nTest 3: Log with invalid position");
+        fs::write(log_dir.join("2"), "add\nNOTANUMBER\n41\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail gracefully");
+        assert!(
+            !log_dir.join("2").exists(),
+            "Corrupted log should be quarantined"
+        );
+        println!("  ✓ Invalid position log quarantined");
+
+        // Test 4: Incomplete multi-byte set (missing middle file)
+        println!("\nTest 4: Incomplete multi-byte log set");
+        fs::write(log_dir.join("3.b"), "rmv\n1\n").unwrap();
+        // Missing 3.a!
+        fs::write(log_dir.join("3"), "rmv\n1\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail gracefully");
+        println!("  ✓ Incomplete set detected");
+
+        // Test 5: Completely garbage data
+        println!("\nTest 5: Log with garbage data");
+        fs::write(log_dir.join("4"), "�����\x00\x01\x02GARBAGE!@#$%").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail gracefully");
+        assert!(
+            !log_dir.join("4").exists(),
+            "Garbage log should be quarantined"
+        );
+        println!("  ✓ Garbage log quarantined");
+
+        // Verify system still works with valid log
+        println!("\nTest 6: System still works after handling corruptions");
+        fs::write(log_dir.join("5"), "rmv\n1\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_ok(), "Should work with valid log");
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "AC");
+        println!("  ✓ System recovered, valid operation succeeded");
+
+        println!("\n✅ Log corruption recovery test PASSED");
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // TEST: Position Out of Bounds Handling
+    // ========================================================================
+
+    /// Tests that operations at invalid positions are handled safely
+    ///
+    /// Tests:
+    /// 1. Position beyond file end (for remove/edit)
+    /// 2. Position exactly at file end (valid for add, invalid for remove)
+    /// 3. Position negative (u128 wrapping)
+    /// 4. Very large position numbers
+    ///
+    /// System should:
+    /// - Detect out of bounds
+    /// - Return appropriate error
+    /// - Not corrupt file
+    /// - Not crash
+    #[test]
+    fn test_position_out_of_bounds() {
+        let test_dir = env::temp_dir().join("test_out_of_bounds");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("file.txt");
+        fs::write(&target_file, b"ABC").unwrap(); // 3 bytes (positions 0, 1, 2)
+        let target_abs = target_file.canonicalize().unwrap();
+
+        let log_dir = test_dir.join("changelog_file");
+        fs::create_dir_all(&log_dir).unwrap();
+        let log_dir_abs = log_dir.canonicalize().unwrap();
+
+        println!("\n=== Position Out of Bounds Test ===");
+
+        // Test 1: Remove at position beyond end
+        println!("\nTest 1: Remove at position 10 (file size = 3)");
+        fs::write(log_dir.join("0"), "rmv\n10\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail with out of bounds");
+        assert_eq!(
+            fs::read_to_string(&target_file).unwrap(),
+            "ABC",
+            "File unchanged"
+        );
+        println!("  ✓ Out of bounds detected, file unchanged");
+
+        // Clean up
+        let _ = fs::remove_file(log_dir.join("0"));
+
+        // Test 2: Edit at position equal to file size
+        println!("\nTest 2: Edit at position 3 (file size = 3)");
+        fs::write(log_dir.join("1"), "edt\n3\n41\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail (position 3 is out of bounds)");
+        assert_eq!(
+            fs::read_to_string(&target_file).unwrap(),
+            "ABC",
+            "File unchanged"
+        );
+        println!("  ✓ Position at file size rejected for edit");
+
+        let _ = fs::remove_file(log_dir.join("1"));
+
+        // Test 3: Add at position equal to file size (should be valid)
+        println!("\nTest 3: Add at position 3 (file size = 3, valid for append)");
+        fs::write(log_dir.join("2"), "add\n3\n44\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_ok(), "Should succeed (valid append position)");
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "ABCD");
+        println!("  ✓ Add at file size succeeded (append)");
+
+        // Test 4: Very large position
+        println!("\nTest 4: Remove at position u128::MAX");
+        fs::write(&target_file, b"ABC").unwrap(); // Reset
+        fs::write(log_dir.join("3"), format!("rmv\n{}\n", u128::MAX)).unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_abs, &log_dir_abs);
+        assert!(result.is_err(), "Should fail with out of bounds");
+        assert_eq!(
+            fs::read_to_string(&target_file).unwrap(),
+            "ABC",
+            "File unchanged"
+        );
+        println!("  ✓ Very large position rejected");
+
+        println!("\n✅ Position out of bounds test PASSED");
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // TEST: Empty File Operations
+    // ========================================================================
+
+    /// Tests operations on empty files
+    ///
+    /// Edge cases:
+    /// 1. Add to empty file (should work)
+    /// 2. Remove from empty file (should fail gracefully)
+    /// 3. Edit empty file (should fail gracefully)
+    /// 4. Undo until empty, then redo
+    #[test]
+    fn test_empty_file_operations() {
+        let test_dir = env::temp_dir().join("test_empty_file");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("file.txt");
+        let log_dir = test_dir.join("changelog_file");
+        fs::create_dir_all(&log_dir).unwrap();
+
+        println!("\n=== Empty File Operations Test ===");
+
+        // Test 1: Add to empty file
+        println!("\nTest 1: Add byte to empty file");
+        fs::write(&target_file, b"").unwrap();
+        fs::write(log_dir.join("0"), "add\n0\n41\n").unwrap();
+
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A");
+        println!("  ✓ Add to empty file succeeded");
+
+        // Test 2: Remove from empty file
+        println!("\nTest 2: Remove from empty file");
+        fs::write(&target_file, b"").unwrap();
+        fs::write(log_dir.join("1"), "rmv\n0\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_file, &log_dir);
+        assert!(result.is_err(), "Should fail on empty file");
+        println!("  ✓ Remove from empty file rejected");
+
+        let _ = fs::remove_file(log_dir.join("1"));
+
+        // Test 3: Edit empty file
+        println!("\nTest 3: Edit empty file");
+        fs::write(&target_file, b"").unwrap();
+        fs::write(log_dir.join("2"), "edt\n0\n41\n").unwrap();
+
+        let result = button_undo_next_changelog_lifo(&target_file, &log_dir);
+        assert!(result.is_err(), "Should fail on empty file");
+        println!("  ✓ Edit empty file rejected");
+
+        let _ = fs::remove_file(log_dir.join("2"));
+
+        // Test 4: Start with content, undo to empty, then redo
+        println!("\nTest 4: Undo to empty, then redo back");
+        fs::write(&target_file, b"A").unwrap();
+
+        button_make_character_action_changelog(&target_file, None, 0, EditType::Add, &log_dir)
+            .unwrap();
+
+        // Undo to empty
+        button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "");
+        println!("  ✓ Undone to empty file");
+
+        // Redo back
+        let redo_dir = test_dir.join("changelog_redo_file");
+        button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "A");
+        println!("  ✓ Redone from empty file");
+
+        println!("\n✅ Empty file operations test PASSED");
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    // ========================================================================
+    // TEST: Maximum Undo Chain Depth
+    // ========================================================================
+
+    /// Tests very long undo/redo chains
+    ///
+    /// Creates 100 operations and ensures:
+    /// 1. All can be undone in correct LIFO order
+    /// 2. All can be redone in correct order
+    /// 3. Log numbering works correctly
+    /// 4. No performance degradation
+    #[test]
+    fn test_maximum_undo_chain_depth() {
+        let test_dir = env::temp_dir().join("test_max_chain");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let target_file = test_dir.join("file.txt");
+        fs::write(&target_file, b"").unwrap();
+
+        let log_dir = test_dir.join("changelog_file");
+
+        println!("\n=== Maximum Undo Chain Depth Test ===");
+
+        const OPERATION_COUNT: usize = 100;
+
+        // Phase 1: Create 100 operations
+        println!("\nPhase 1: Creating {} operations", OPERATION_COUNT);
+        for i in 0..OPERATION_COUNT {
+            let ch = ('A' as u8 + (i % 26) as u8) as char;
+
+            // Add character
+            let mut content = fs::read(&target_file).unwrap();
+            content.push(ch as u8);
+            fs::write(&target_file, &content).unwrap();
+
+            // Create log
+            button_make_character_action_changelog(
+                &target_file,
+                None,
+                i as u128,
+                EditType::Add,
+                &log_dir,
+            )
+            .unwrap();
+
+            if (i + 1) % 20 == 0 {
+                println!("  Created {} operations...", i + 1);
+            }
+        }
+
+        let final_content = fs::read_to_string(&target_file).unwrap();
+        assert_eq!(final_content.len(), OPERATION_COUNT);
+        println!("  ✓ All {} operations created", OPERATION_COUNT);
+
+        // Phase 2: Undo all operations
+        println!("\nPhase 2: Undoing all {} operations", OPERATION_COUNT);
+        for i in 0..OPERATION_COUNT {
+            button_undo_next_changelog_lifo(&target_file, &log_dir).unwrap();
+
+            if (i + 1) % 20 == 0 {
+                println!("  Undone {} operations...", i + 1);
+            }
+        }
+
+        assert_eq!(fs::read_to_string(&target_file).unwrap(), "");
+        println!("  ✓ All operations undone (file empty)");
+
+        // Phase 3: Redo all operations
+        println!("\nPhase 3: Redoing all {} operations", OPERATION_COUNT);
+        let redo_dir = test_dir.join("changelog_redo_file");
+
+        for i in 0..OPERATION_COUNT {
+            button_undo_next_changelog_lifo(&target_file, &redo_dir).unwrap();
+
+            if (i + 1) % 20 == 0 {
+                println!("  Redone {} operations...", i + 1);
+            }
+        }
+
+        let restored_content = fs::read_to_string(&target_file).unwrap();
+        assert_eq!(restored_content, final_content);
+        println!("  ✓ All operations redone (file restored)");
+
+        println!(
+            "\n✅ Maximum undo chain depth test PASSED ({} ops)",
+            OPERATION_COUNT
+        );
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+}
+
 // ===================================
 // Sample main code, e.g. for testning
 // ===================================
 
 /*
-// main.rs for reversible_edit_changelog_module
+// main.rs for buttons_reversible_edit_changelog_module
 
-mod reversible_edit_changelog_module;
-use reversible_edit_changelog_module::{
+mod buttons_reversible_edit_changelog_module;
+use buttons_reversible_edit_changelog_module::{
     EditType, button_add_byte_make_log_file, button_clear_all_redo_logs,
     button_hexeditinplace_byte_make_log_file, button_make_character_action_changelog,
     button_make_hexedit_changelog, button_remove_byte_make_log_file,

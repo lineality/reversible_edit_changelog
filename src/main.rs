@@ -494,22 +494,61 @@ fn main() -> std::io::Result<()> {
     println!("✓ Test 8: HIGH-LEVEL API - Clear all redo logs");
     println!("=============================================================\n");
 
-    // // Cleanup
-    // let _ = fs::remove_file(&multibyte_test_file);
-    // let _ = fs::remove_dir_all(&log_dir_multibyte);
-    // let _ = fs::remove_dir_all(&redo_dir_multibyte);
+    // =========================================================================
+    // Manual Tests
+    // =========================================================================
+    println!("─────────────────────────────────────────────────────────────");
+    println!("Manual Tests");
+    println!("─────────────────────────────────────────────────────────────");
 
-    // // =========================================================================
-    // // FINAL SUMMARY
-    // // =========================================================================
-    // println!("=============================================================");
-    // println!("✅ ALL TESTS PASSED!");
-    // println!("=============================================================");
-    // println!("✓ Test 1: Remove operation (undo + redo)");
-    // println!("✓ Test 2: Hex edit operation (undo + redo)");
-    // println!("✓ Test 3: Add operation (undo + redo)");
-    // println!("✓ Bonus: Multi-byte UTF-8 character (undo + redo)");
-    // println!("=============================================================\n");
+    let manual_add_testfile = test_dir.join("manual_a_test.txt");
+
+    // Setup: Create empty file (simulating user removed 'a')
+    println!("1. Assuming you have an empty manual_a_test.txt, will add: a");
+
+    let content = fs::read_to_string(&manual_add_testfile)?;
+    println!(
+        "   File contents: {:?} (length: {})",
+        content,
+        content.len()
+    );
+
+    // Create changelog: add 61 ('a') at position 0
+    println!("Creating changelog: ADD 0x61 ('a') at position 0");
+    let log_dir_manual_test_add = test_dir.join("manual_a_test");
+    button_add_byte_make_log_file(
+        &fs::canonicalize(&manual_add_testfile)?,
+        0,
+        0x61, // 'a'
+        &log_dir_manual_test_add,
+    )
+    .expect("Failed to create add log");
+    println!(
+        "   ✓ Changelog created in: {}",
+        log_dir_manual_test_add.display()
+    );
+
+    // Execute undo (should add 'a' back)
+    println!("Executing add-operation (should add 'a')");
+    button_undo_next_changelog_lifo(&manual_add_testfile, &log_dir_manual_test_add)
+        .expect("Failed to undo add");
+    let result = fs::read_to_string(&manual_add_testfile)?;
+    println!("   File after undo: {:?}", result);
+    assert_eq!(result, "a", "TEST FAILED: File should contain 'a'");
+    println!("   ✅ TEST PASSED: 'a' added\n");
+
+    // // Test REDO functionality
+    // println!("4. Testing REDO (should remove 'a' again)");
+    // let redo_dir_add = test_dir.join("changelog_redo_add_test");
+    // button_undo_next_changelog_lifo(&add_test_file, &redo_dir_add).expect("Failed to redo add");
+    // let result = fs::read_to_string(&add_test_file)?;
+    // println!(
+    //     "   File after redo: {:?} (length: {})",
+    //     result,
+    //     result.len()
+    // );
+    // assert_eq!(result, "", "TEST 3 REDO FAILED: File should be empty");
+    // println!("   ✅ TEST 3 REDO PASSED: 'a' removed again\n");
 
     Ok(())
 }
