@@ -6,7 +6,7 @@ use buttons_reversible_edit_changelog_module::{
     button_hexeditinplace_byte_make_log_file, button_make_character_action_changelog,
     button_make_hexedit_changelog, button_remove_byte_make_log_file,
     button_remove_multibyte_make_log_files, button_undo_redo_next_inverse_changelog_pop_lifo,
-    get_changelog_directory_path,
+    get_undo_changelog_directory_path,
 };
 use std::fs;
 
@@ -404,7 +404,7 @@ fn main() -> std::io::Result<()> {
     let _ = fs::remove_dir_all(&redo_dir_6);
 
     // =========================================================================
-    // NEW TEST 7: HIGH-LEVEL API - get_changelog_directory_path()
+    // NEW TEST 7: HIGH-LEVEL API - get_undo_changelog_directory_path()
     // =========================================================================
     println!("─────────────────────────────────────────────────────────────");
     println!("TEST 7: HIGH-LEVEL API - Get Changelog Directory Path");
@@ -414,7 +414,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test7_file, b"test")?;
 
     let log_dir =
-        get_changelog_directory_path(&test7_file).expect("Failed to get changelog directory path");
+        get_undo_changelog_directory_path(&test7_file).expect("Failed to get changelog directory path");
 
     println!("7. Changelog directory path: {}", log_dir.display());
 

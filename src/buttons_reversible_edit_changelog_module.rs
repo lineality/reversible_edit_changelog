@@ -3408,6 +3408,9 @@ pub enum EditType {
 // Constants
 const MAX_UTF8_BYTES: usize = 4;
 
+// ==========================================================
+// ERROR SECTION: BUTTON UNDO CHANGELOG ERROR HANDLING SYSTEM
+// ==========================================================
 /*
 # Sample integration
 
@@ -6669,7 +6672,7 @@ fn is_redo_directory(log_directory_path: &Path) -> ButtonResult<bool> {
 /// let current_byte = read_single_byte_from_file(&file_path, 10)?;
 /// // Now we can create redo log: "add {current_byte} at 10"
 /// ```
-fn read_single_byte_from_file(file_path: &Path, position: u128) -> ButtonResult<u8> {
+pub fn read_single_byte_from_file(file_path: &Path, position: u128) -> ButtonResult<u8> {
     // =================================================
     // Debug-Assert, Test-Assert, Production-Catch-Handle
     // =================================================
@@ -7691,9 +7694,9 @@ fn create_inverse_redo_logs_multibyte(
 /// ```
 /// // File: /home/user/documents/myfile.txt
 /// // Returns: /home/user/documents/changelog_myfile/
-/// let log_dir = get_changelog_directory_path(Path::new("/home/user/documents/myfile.txt"))?;
+/// let log_dir = get_undo_changelog_directory_path(Path::new("/home/user/documents/myfile.txt"))?;
 /// ```
-pub fn get_changelog_directory_path(target_file: &Path) -> ButtonResult<PathBuf> {
+pub fn get_undo_changelog_directory_path(target_file: &Path) -> ButtonResult<PathBuf> {
     // Get parent directory
     let parent_dir = target_file
         .parent()
@@ -8057,7 +8060,7 @@ mod router_tests {
     #[test]
     fn test_get_changelog_directory_path() {
         let target_file = Path::new("/home/user/documents/myfile.txt");
-        let log_dir = get_changelog_directory_path(target_file).unwrap();
+        let log_dir = get_undo_changelog_directory_path(target_file).unwrap();
 
         assert!(log_dir.to_string_lossy().contains("changelog_myfile"));
     }
@@ -9506,7 +9509,7 @@ use buttons_reversible_edit_changelog_module::{
     button_hexeditinplace_byte_make_log_file, button_make_character_action_changelog,
     button_make_hexedit_changelog, button_remove_byte_make_log_file,
     button_remove_multibyte_make_log_files, button_undo_redo_next_inverse_changelog_pop_lifo,
-    get_changelog_directory_path,
+    get_undo_changelog_directory_path,
 };
 use std::fs;
 
@@ -9904,7 +9907,7 @@ fn main() -> std::io::Result<()> {
     let _ = fs::remove_dir_all(&redo_dir_6);
 
     // =========================================================================
-    // NEW TEST 7: HIGH-LEVEL API - get_changelog_directory_path()
+    // NEW TEST 7: HIGH-LEVEL API - get_undo_changelog_directory_path()
     // =========================================================================
     println!("─────────────────────────────────────────────────────────────");
     println!("TEST 7: HIGH-LEVEL API - Get Changelog Directory Path");
@@ -9914,7 +9917,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test7_file, b"test")?;
 
     let log_dir =
-        get_changelog_directory_path(&test7_file).expect("Failed to get changelog directory path");
+        get_undo_changelog_directory_path(&test7_file).expect("Failed to get changelog directory path");
 
     println!("7. Changelog directory path: {}", log_dir.display());
 
