@@ -3,7 +3,7 @@
 mod buttons_reversible_edit_changelog_module;
 use buttons_reversible_edit_changelog_module::{
     EditType, button_add_byte_make_log_file, button_clear_all_redo_logs,
-    button_hexeditinplace_byte_make_log_file, button_make_character_action_changelog,
+    button_hexeditinplace_byte_make_log_file, button_make_changeloge_from_user_character_action_level,
     button_make_hexedit_changelog, button_remove_byte_make_log_file,
     button_remove_multibyte_make_log_files, button_undo_redo_next_inverse_changelog_pop_lifo,
     get_undo_changelog_directory_path,
@@ -238,7 +238,7 @@ fn main() -> std::io::Result<()> {
     println!("   ✅ MULTIBYTE REDO PASSED: '阿' restored\n");
 
     // =========================================================================
-    // NEW TEST 5: HIGH-LEVEL API - button_make_character_action_changelog()
+    // NEW TEST 5: HIGH-LEVEL API - button_make_changeloge_from_user_character_action_level()
     // =========================================================================
     println!("─────────────────────────────────────────────────────────────");
     println!("TEST 5: HIGH-LEVEL API - Character Action Changelog");
@@ -256,7 +256,7 @@ fn main() -> std::io::Result<()> {
 
     // Simulate: user adds 'X', log should say "remove"
     let log_dir_5a = test_dir.join("changelog_test5_charactertxt");
-    button_make_character_action_changelog(
+    button_make_changeloge_from_user_character_action_level(
         &test5_file,
         None, // Don't need character for Add
         2,
@@ -279,7 +279,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, b"AB")?;
 
     // Simulate: user removes 'B', log should say "add B"
-    button_make_character_action_changelog(
+    button_make_changeloge_from_user_character_action_level(
         &test5_file,
         Some('B'), // Need character to restore
         1,
@@ -310,7 +310,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, "AB阿")?;
 
     // Simulate: user adds '阿', log should say "remove" (3 times)
-    button_make_character_action_changelog(&test5_file, None, 2, EditType::Add, &log_dir_5a)
+    button_make_changeloge_from_user_character_action_level(&test5_file, None, 2, EditType::Add, &log_dir_5a)
         .expect("Failed to create multi-byte add log");
     println!("   ✓ Multi-byte character add log created");
 
@@ -333,7 +333,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, "AB阿")?;
 
     // Simulate: user removes '阿', log should say "add 阿"
-    button_make_character_action_changelog(&test5_file, Some('阿'), 2, EditType::Rmv, &log_dir_5a)
+    button_make_changeloge_from_user_character_action_level(&test5_file, Some('阿'), 2, EditType::Rmv, &log_dir_5a)
         .expect("Failed to create multi-byte remove log");
 
     // HERE, AFTER LOG, HOW IS LOG TESTING THE POSITION?
