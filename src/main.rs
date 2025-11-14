@@ -4,10 +4,9 @@ mod buttons_reversible_edit_changelog_module;
 use buttons_reversible_edit_changelog_module::{
     EditType, button_add_byte_make_log_file, button_base_clear_all_redo_logs,
     button_hexeditinplace_byte_make_log_file,
-    button_make_changelog_from_user_character_action_level, button_make_hexedit_in_place_changelog,
-    button_remove_byte_make_log_file, button_remove_multibyte_make_log_files,
-    button_safe_clear_all_redo_logs, button_undo_redo_next_inverse_changelog_pop_lifo,
-    get_undo_changelog_directory_path,
+    button_make_changelog_from_user_character_action_level, button_remove_byte_make_log_file,
+    button_remove_multibyte_make_log_files, button_safe_clear_all_redo_logs,
+    button_undo_redo_next_inverse_changelog_pop_lifo, get_undo_changelog_directory_path,
 };
 use std::fs;
 
@@ -396,7 +395,8 @@ fn main() -> std::io::Result<()> {
 
     // Log original value before user's hex-edit
     let log_dir_6 = test_dir.join("changelog_test6_hexedittxt");
-    button_make_hexedit_in_place_changelog(
+    // button_make_hexedit_in_place_changelog(
+    button_hexeditinplace_byte_make_log_file(
         &test6_file,
         1,
         0x42, // Original 'B'
