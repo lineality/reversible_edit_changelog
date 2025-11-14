@@ -2,10 +2,11 @@
 
 mod buttons_reversible_edit_changelog_module;
 use buttons_reversible_edit_changelog_module::{
-    EditType, button_add_byte_make_log_file, button_clear_all_redo_logs,
-    button_hexeditinplace_byte_make_log_file, button_make_changeloge_from_user_character_action_level,
-    button_make_hexedit_changelog, button_remove_byte_make_log_file,
-    button_remove_multibyte_make_log_files, button_undo_redo_next_inverse_changelog_pop_lifo,
+    EditType, button_add_byte_make_log_file, button_base_clear_all_redo_logs,
+    button_hexeditinplace_byte_make_log_file,
+    button_make_changelog_from_user_character_action_level, button_make_hexedit_in_place_changelog,
+    button_remove_byte_make_log_file, button_remove_multibyte_make_log_files,
+    button_safe_clear_all_redo_logs, button_undo_redo_next_inverse_changelog_pop_lifo,
     get_undo_changelog_directory_path,
 };
 use std::fs;
@@ -256,11 +257,12 @@ fn main() -> std::io::Result<()> {
 
     // Simulate: user adds 'X', log should say "remove"
     let log_dir_5a = test_dir.join("changelog_test5_charactertxt");
-    button_make_changeloge_from_user_character_action_level(
+    button_make_changelog_from_user_character_action_level(
         &test5_file,
         None, // Don't need character for Add
+        None,
         2,
-        EditType::Add,
+        EditType::AddCharacter,
         &log_dir_5a,
     )
     .expect("Failed to create character add log");
@@ -278,12 +280,24 @@ fn main() -> std::io::Result<()> {
     println!("5b. User removes 'B' at position 1");
     fs::write(&test5_file, b"AB")?;
 
+    /*
+    pub fn button_make_changelog_from_user_character_action_level(
+        target_file: &Path,
+        character: Option<char>,
+        byte_value: Option<u8>, // TODO
+        position: u128,
+        edit_type: EditType,
+        log_directory_path: &Path,
+    ) -> ButtonResult<()> {
+    */
+
     // Simulate: user removes 'B', log should say "add B"
-    button_make_changeloge_from_user_character_action_level(
+    button_make_changelog_from_user_character_action_level(
         &test5_file,
         Some('B'), // Need character to restore
+        None,
         1,
-        EditType::Rmv,
+        EditType::RmvCharacter,
         &log_dir_5a,
     )
     .expect("Failed to create character remove log");
@@ -310,8 +324,15 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, "AB阿")?;
 
     // Simulate: user adds '阿', log should say "remove" (3 times)
-    button_make_changeloge_from_user_character_action_level(&test5_file, None, 2, EditType::Add, &log_dir_5a)
-        .expect("Failed to create multi-byte add log");
+    button_make_changelog_from_user_character_action_level(
+        &test5_file,
+        None,
+        None,
+        2,
+        EditType::AddCharacter,
+        &log_dir_5a,
+    )
+    .expect("Failed to create multi-byte add log");
     println!("   ✓ Multi-byte character add log created");
 
     // Undo should remove '阿'
@@ -333,8 +354,15 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, "AB阿")?;
 
     // Simulate: user removes '阿', log should say "add 阿"
-    button_make_changeloge_from_user_character_action_level(&test5_file, Some('阿'), 2, EditType::Rmv, &log_dir_5a)
-        .expect("Failed to create multi-byte remove log");
+    button_make_changelog_from_user_character_action_level(
+        &test5_file,
+        Some('阿'),
+        None,
+        2,
+        EditType::RmvCharacter,
+        &log_dir_5a,
+    )
+    .expect("Failed to create multi-byte remove log");
 
     // HERE, AFTER LOG, HOW IS LOG TESTING THE POSITION?
     // Manually remove '阿' to simulate user action
@@ -368,7 +396,7 @@ fn main() -> std::io::Result<()> {
 
     // Log original value before user's hex-edit
     let log_dir_6 = test_dir.join("changelog_test6_hexedittxt");
-    button_make_hexedit_changelog(
+    button_make_hexedit_in_place_changelog(
         &test6_file,
         1,
         0x42, // Original 'B'
@@ -413,8 +441,8 @@ fn main() -> std::io::Result<()> {
     let test7_file = test_dir.join("myfile.txt");
     fs::write(&test7_file, b"test")?;
 
-    let log_dir =
-        get_undo_changelog_directory_path(&test7_file).expect("Failed to get changelog directory path");
+    let log_dir = get_undo_changelog_directory_path(&test7_file)
+        .expect("Failed to get changelog directory path");
 
     println!("7. Changelog directory path: {}", log_dir.display());
 
@@ -459,7 +487,7 @@ fn main() -> std::io::Result<()> {
     assert!(redo_dir_8.join("2").exists());
 
     // Clear redo logs
-    button_clear_all_redo_logs(&test8_file).expect("Failed to clear redo logs");
+    button_safe_clear_all_redo_logs(&test8_file).expect("Failed to clear redo logs");
 
     println!("   Called button_clear_all_redo_logs()");
 
@@ -668,7 +696,7 @@ fn main() -> std::io::Result<()> {
     println!();
 
     println!("Clearing redo logs (new edit invalidates redo history)");
-    _ = button_clear_all_redo_logs(&manual_test_file);
+    _ = button_base_clear_all_redo_logs(&manual_test_file);
     println!("✓ Redo logs cleared");
     println!();
     println!("Notice: The redo directory is now empty");

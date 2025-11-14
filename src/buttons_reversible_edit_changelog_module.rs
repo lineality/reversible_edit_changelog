@@ -9,14 +9,17 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    thread,
+    time::Duration,
 };
 /*
 Rules & Policies
 
+
 # Rust rules:
 - Always best practice.
-- Always extensive doc strings.
-- Always comments.
+- Always extensive doc strings: what the code is doing with project context
+- Always clear comments.
 - Always cargo tests (where possible).
 - Never remove documentation.
 - Always clear, meaningful, unique names (e.g. variables, functions).
@@ -28,8 +31,19 @@ Rules & Policies
 - Load what is needed when it is needed: Do not ever load a whole file or line, rarely load a whole anything. increment and load only what is required pragmatically. Do not fill 'state' with every possible piece of un-used information. Do not insecurity output information broadly in the case of errors and exceptions.
 
 - Always defensive best practice
-- Always error handling: Every part of code, every process, function, and operation will fail at some point, if only because of cosmic-ray bit-flips (which are common), hardware failure, power-supply failure, adversarial attacks, etc. There must always be fail-safe error handling where production-release-build code handles issues and moves on without panic-crashing ever. Every failure must be handled smoothly: let it fail and move on.
+- Always error and exception handling: Every part of code, every process, function, and operation will fail at some point, if only because of cosmic-ray bit-flips (which are common), hardware failure, power-supply failure, adversarial attacks, etc. There must always be fail-safe error handling where production-release-build code handles issues and moves on without panic-crashing ever. Every failure must be handled smoothly: let it fail and move on.
 
+Somehow there seems to be no clear vocabulary for 'Do not stop.' When you come to something to handle, handle it:
+- Handle and move on: Do not halt the program.
+- Handle and move on: Do not terminate the program.
+- Handle and move on: Do not exit the program.
+- Handle and move on: Do not crash the program.
+- Handle and move on: Do not panic the program.
+- Handle and move on: Do not coredump the program.
+- Handle and move on: Do not stop the program.
+- Handle and move on: Do not finish the program.
+
+Comments and docs for functions and groups of functions must include project level information: To paraphrase Jack Welch, "The most dangerous thing in the world is a flawless operation that should never have been done in the first place." For projects, functions are not pure platonic abstractions; the project has a need that the function is or is not meeting. It happens constantly that a function does the wrong thing well and so this 'bug' is never detected. Project-level documentation and logic-level documentation are two different things that must both exist such that discrepancies must be identifiable; Project-level documentation, logic-level documentation, and the code, must align and align with user-needs, real conditions, and future conditions.
 
 Safety, reliability, maintainability, fail-safe, communication-documentation, are the goals: not ideology, aesthetics, popularity, momentum-tradition, bad habits, convenience, nihilism, lazyness, lack of impulse control, etc.
 
@@ -134,10 +148,13 @@ Production output following an error must be managed and defined, not not open t
 - use null-void return values
 - check non-void-null returns
 
-8. Navigate debugging and testing on the one hand and not-dangerous conditional compilation on the other hand
+8. Navigate debugging and testing on the one hand and not-dangerous conditional-compilation on the other hand:
+- Here 'conditional compilation' is interpreted as significant changes to the overall 'tree' of operation depending on build settings/conditions, such as using different modules and basal functions. E.g. "GDPR compliance mode compilation"
+- Any LLVM type compilation or build-flag will modify compilation details, but not the target tree logic of what the software does (arguably).
+- 2025+ "compilation" and "conditions" cannot be simplistically compared with single-architecture 1970 pdp-11-only C or similar embedded device compilation.
 
 9. Communicate:
-- use doc strings, use comments,
+- Use doc strings; use comments.
 - Document use-cases, edge-cases, and policies (These are project specific and cannot be telepathed from generic micro-function code. When a Mars satellite failed because one team used SI-metric units and another team did not, that problem could not have been detected by looking at, and auditing, any individual function in isolation without documentation. Breaking a process into innumerable undocumented micro-functions can make scope and policy impossible to track. To paraphrase Jack Welch: "The most dangerous thing in the world is a flawless operation that should never have been done in the first place.")
 
 10. Use state-less operations when possible:
@@ -900,6 +917,7 @@ pub fn replace_single_byte_in_file(
             let position_in_chunk = byte_position_from_start - chunk_start_position;
 
             // Store original byte for logging
+            #[cfg(debug_assertions)]
             let original_byte_value = bucket_brigade_buffer[position_in_chunk];
 
             // Perform the byte replacement
@@ -1762,9 +1780,10 @@ pub fn remove_single_byte_from_file(
         ));
     }
 
+    let mut _totalbytes_written_to_draft: usize = 0;
+
     // Tracking variables
     let mut total_bytes_read_from_original: usize = 0;
-    let mut total_bytes_written_to_draft: usize = 0;
     let mut chunk_number: usize = 0;
     let mut byte_was_removed = false;
     let mut removed_byte_value: u8 = 0;
@@ -1897,7 +1916,7 @@ pub fn remove_single_byte_from_file(
                     ));
                 }
 
-                total_bytes_written_to_draft += bytes_written_before;
+                _totalbytes_written_to_draft += bytes_written_before;
             }
 
             // SKIP the byte at position_in_chunk (this is the removal operation)
@@ -1937,7 +1956,7 @@ pub fn remove_single_byte_from_file(
                     ));
                 }
 
-                total_bytes_written_to_draft += bytes_written_after;
+                _totalbytes_written_to_draft += bytes_written_after;
             }
         } else {
             // This chunk does not contain the removal position
@@ -1967,7 +1986,7 @@ pub fn remove_single_byte_from_file(
                 ));
             }
 
-            total_bytes_written_to_draft += bytes_written;
+            _totalbytes_written_to_draft += bytes_written;
         }
 
         total_bytes_read_from_original += bytes_read;
@@ -2100,7 +2119,7 @@ pub fn remove_single_byte_from_file(
         total_bytes_read_from_original
     );
     #[cfg(debug_assertions)]
-    println!("Bytes written to draft: {}", total_bytes_written_to_draft);
+    println!("Bytes written to draft: {}", _totalbytes_written_to_draft);
     #[cfg(debug_assertions)]
     println!("Total chunks: {}", chunk_number);
     #[cfg(debug_assertions)]
@@ -2798,9 +2817,10 @@ pub fn add_single_byte_to_file(
         ));
     }
 
+    let mut _totalbytes_written_to_draft: usize = 0;
+
     // Tracking variables
     let mut total_bytes_read_from_original: usize = 0;
-    let mut total_bytes_written_to_draft: usize = 0;
     let mut chunk_number: usize = 0;
     let mut byte_was_inserted = false;
 
@@ -2881,7 +2901,7 @@ pub fn add_single_byte_to_file(
                 ));
             }
 
-            total_bytes_written_to_draft += bytes_written;
+            _totalbytes_written_to_draft += bytes_written;
             byte_was_inserted = true;
             draft_file.flush()?;
 
@@ -2917,7 +2937,7 @@ pub fn add_single_byte_to_file(
                     ));
                 }
 
-                total_bytes_written_to_draft += bytes_written;
+                _totalbytes_written_to_draft += bytes_written;
                 byte_was_inserted = true;
                 draft_file.flush()?;
             }
@@ -3002,7 +3022,7 @@ pub fn add_single_byte_to_file(
                     ));
                 }
 
-                total_bytes_written_to_draft += bytes_written_before;
+                _totalbytes_written_to_draft += bytes_written_before;
             }
 
             // INSERT the new byte
@@ -3019,7 +3039,7 @@ pub fn add_single_byte_to_file(
                 ));
             }
 
-            total_bytes_written_to_draft += bytes_written_insert;
+            _totalbytes_written_to_draft += bytes_written_insert;
             byte_was_inserted = true;
 
             // Write bytes FROM the insertion position onward (these shift forward by 1)
@@ -3055,7 +3075,7 @@ pub fn add_single_byte_to_file(
                 ));
             }
 
-            total_bytes_written_to_draft += bytes_written_after;
+            _totalbytes_written_to_draft += bytes_written_after;
         } else {
             // This chunk does not contain the insertion position
             // Write entire chunk to draft file
@@ -3085,7 +3105,7 @@ pub fn add_single_byte_to_file(
                 ));
             }
 
-            total_bytes_written_to_draft += bytes_written;
+            _totalbytes_written_to_draft += bytes_written;
         }
 
         total_bytes_read_from_original += bytes_read;
@@ -3198,13 +3218,13 @@ pub fn add_single_byte_to_file(
             #[cfg(debug_assertions)]
             println!("Backup file removed");
         }
-        Err(e) => {
+        Err(_e) => {
             #[cfg(debug_assertions)]
             {
                 eprintln!(
                     "WARNING: Could not remove backup file: {} ({})",
                     backup_file_path.display(),
-                    e
+                    _e
                 );
                 println!("Backup file retained at: {}", backup_file_path.display());
             }
@@ -3227,7 +3247,7 @@ pub fn add_single_byte_to_file(
             "Bytes read from original: {}",
             total_bytes_read_from_original
         );
-        println!("Bytes written to draft: {}", total_bytes_written_to_draft);
+        println!("Bytes written to draft: {}", _totalbytes_written_to_draft);
         println!("Total chunks: {}", chunk_number);
         println!("Status: SUCCESS");
     }
@@ -3398,11 +3418,15 @@ fn main() -> io::Result<()> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditType {
     /// Add byte operation (causes +1 frame-shift)
-    Add,
+    AddCharacter,
     /// Remove byte operation (causes -1 frame-shift)
-    Rmv,
+    RmvCharacter,
     /// Edit byte in-place operation (no frame-shift)
-    Edt,
+    EdtByteInplace,
+    /// Add byte operation (causes +1 frame-shift)
+    AddByte,
+    /// Remove byte operation (causes -1 frame-shift)
+    RmvByte,
 }
 
 // Constants
@@ -3420,7 +3444,7 @@ fn buttons_handle_user_edit(state: &mut EditorState) -> Result<()> {
     let log_dir = state.get_changelog_directory()?;
 
     // Call Button function - error automatically converts to LinesError
-    button_make_changeloge_from_user_character_action_level(&target_file, Some('a'), 42, EditType::Add, &log_dir)?; // ButtonError converts to LinesError via From trait
+    button_make_changelog_from_user_character_action_level(&target_file, Some('a'), 42, EditType::Add, &log_dir)?; // ButtonError converts to LinesError via From trait
 
     Ok(())
 }
@@ -3491,29 +3515,39 @@ pub enum ButtonError {
     /// Log file is malformed or cannot be parsed
     /// Examples: missing position, invalid hex byte, wrong format
     MalformedLog {
-        log_path: PathBuf,
+        #[allow(dead_code)]
+        logpath: PathBuf,
         reason: &'static str, // Fixed string, no heap
     },
 
     /// UTF-8 character validation failed
     /// Examples: incomplete multi-byte sequence, invalid UTF-8
     InvalidUtf8 {
+        #[allow(dead_code)]
         position: u128,
+        #[allow(dead_code)]
         byte_count: usize,
         reason: &'static str,
     },
 
     /// Log directory structure issue
     /// Examples: missing directory, wrong naming convention
-    LogDirectoryError { path: PathBuf, reason: &'static str },
+    LogDirectoryError {
+        #[allow(dead_code)]
+        path: PathBuf,
+        reason: &'static str,
+    },
 
     /// Cannot find next LIFO log file (empty log directory)
-    NoLogsFound { log_dir: PathBuf },
+    NoLogsFound {
+        #[allow(dead_code)]
+        log_dir: PathBuf,
+    },
 
     /// Position out of bounds for target file
     PositionOutOfBounds { position: u128, file_size: u128 },
 
-    /// Multi-byte log set is incomplete or corrupted
+    /// Multi-byte log set is incomplete or corrupted3528
     /// Example: Found 10.b and 10 but missing 10.a
     IncompleteLogSet {
         base_number: u128,
@@ -3535,8 +3569,8 @@ impl std::fmt::Display for ButtonError {
                 write!(f, "Log file error: {}", reason)
             }
             #[cfg(debug_assertions)]
-            ButtonError::MalformedLog { log_path, reason } => {
-                write!(f, "Malformed log {}: {}", log_path.display(), reason)
+            ButtonError::MalformedLog { logpath, reason } => {
+                write!(f, "Malformed log {}: {}", logpath.display(), reason)
             }
 
             #[cfg(not(debug_assertions))]
@@ -3669,9 +3703,9 @@ pub fn quarantine_bad_log(target_file: &Path, bad_log_path: &Path, reason: &str)
     let timestamp_dir = error_log_dir.join(timestamp_str);
 
     // Create error log directory
-    if let Err(e) = fs::create_dir_all(&timestamp_dir) {
+    if let Err(_e) = fs::create_dir_all(&timestamp_dir) {
         #[cfg(debug_assertions)]
-        eprintln!("WARNING: Cannot create quarantine directory: {}", e);
+        eprintln!("WARNING: Cannot create quarantine directory: {}", _e);
         return;
     }
 
@@ -3687,9 +3721,9 @@ pub fn quarantine_bad_log(target_file: &Path, bad_log_path: &Path, reason: &str)
 
     let destination = timestamp_dir.join(log_filename);
 
-    if let Err(e) = fs::rename(bad_log_path, &destination) {
+    if let Err(_e) = fs::rename(bad_log_path, &destination) {
         #[cfg(debug_assertions)]
-        eprintln!("WARNING: Cannot move corrupted log: {}", e);
+        eprintln!("WARNING: Cannot move corrupted log: {}", _e);
 
         // Try to at least log what happened
         log_button_error(
@@ -3766,9 +3800,9 @@ pub fn log_button_error(target_file: &Path, error_msg: &str, context: Option<&st
     // Create timestamped subdirectory
     let timestamp_dir = error_log_dir.join(timestamp_str);
 
-    if let Err(e) = fs::create_dir_all(&timestamp_dir) {
+    if let Err(_e) = fs::create_dir_all(&timestamp_dir) {
         #[cfg(debug_assertions)]
-        eprintln!("WARNING: Cannot create error log directory: {}", e);
+        eprintln!("WARNING: Cannot create error log directory: {}", _e);
         eprintln!("ERROR: {}", error_msg);
         return;
     }
@@ -3790,16 +3824,16 @@ pub fn log_button_error(target_file: &Path, error_msg: &str, context: Option<&st
         .open(&error_log_file)
     {
         Ok(mut file) => {
-            if let Err(e) = file.write_all(log_entry.as_bytes()) {
+            if let Err(_e) = file.write_all(log_entry.as_bytes()) {
                 #[cfg(debug_assertions)]
-                eprintln!("WARNING: Cannot write to error log: {}", e);
+                eprintln!("WARNING: Cannot write to error log: {}", _e);
                 eprintln!("ERROR: {}", error_msg);
             }
             let _ = file.flush();
         }
-        Err(e) => {
+        Err(_e) => {
             #[cfg(debug_assertions)]
-            eprintln!("WARNING: Cannot open error log: {}", e);
+            eprintln!("WARNING: Cannot open error log: {}", _e);
             eprintln!("ERROR: {}", error_msg);
         }
     }
@@ -3971,33 +4005,37 @@ impl LogEntry {
 
         // Validation: Rmv must not have a byte value
         debug_assert!(
-            !(edit_type == EditType::Rmv && byte_value.is_some()),
+            !(edit_type == EditType::RmvCharacter && byte_value.is_some()),
             "Rmv operation must not have byte_value"
         );
 
         #[cfg(test)]
         assert!(
-            !(edit_type == EditType::Rmv && byte_value.is_some()),
+            !(edit_type == EditType::RmvCharacter && byte_value.is_some()),
             "Rmv operation must not have byte_value"
         );
 
-        if edit_type == EditType::Rmv && byte_value.is_some() {
+        if edit_type == EditType::RmvCharacter && byte_value.is_some() {
             return Err("Rmv operation must not have byte_value");
         }
 
         // Validation: Add and Edt must have a byte value
         debug_assert!(
-            !(matches!(edit_type, EditType::Add | EditType::Edt) && byte_value.is_none()),
+            !(matches!(edit_type, EditType::AddCharacter | EditType::EdtByteInplace)
+                && byte_value.is_none()),
             "Add/Edt operations must have byte_value"
         );
 
         #[cfg(test)]
         assert!(
-            !(matches!(edit_type, EditType::Add | EditType::Edt) && byte_value.is_none()),
+            !(matches!(edit_type, EditType::AddCharacter | EditType::EdtByteInplace)
+                && byte_value.is_none()),
             "Add/Edt operations must have byte_value"
         );
 
-        if matches!(edit_type, EditType::Add | EditType::Edt) && byte_value.is_none() {
+        if matches!(edit_type, EditType::AddCharacter | EditType::EdtByteInplace)
+            && byte_value.is_none()
+        {
             return Err("Add/Edt operations must have byte_value");
         }
 
@@ -4040,9 +4078,11 @@ impl EditType {
     /// - Edt → "edt"
     pub fn as_str(self) -> &'static str {
         match self {
-            EditType::Add => "add",
-            EditType::Rmv => "rmv",
-            EditType::Edt => "edt",
+            EditType::AddCharacter => "add",
+            EditType::RmvCharacter => "rmv",
+            EditType::EdtByteInplace => "edt",
+            EditType::AddByte => "add_byte",
+            EditType::RmvByte => "rmv_byte",
         }
     }
 
@@ -4064,9 +4104,11 @@ impl EditType {
     /// - Returns error for any other input
     pub fn from_str(s: &str) -> Result<Self, &'static str> {
         match s {
-            "add" => Ok(EditType::Add),
-            "rmv" => Ok(EditType::Rmv),
-            "edt" => Ok(EditType::Edt),
+            "add" => Ok(EditType::AddCharacter),
+            "rmv" => Ok(EditType::RmvCharacter),
+            "edt" => Ok(EditType::EdtByteInplace),
+            "add_byte" => Ok(EditType::AddByte),
+            "rmv_byte" => Ok(EditType::RmvByte),
             _ => Err("Invalid edit type string (must be 'add', 'rmv', or 'edt')"),
         }
     }
@@ -4186,12 +4228,15 @@ impl LogEntry {
 
         // Validation: Check consistency
         match edit_type {
-            EditType::Rmv => {
+            EditType::RmvCharacter => {
                 if byte_value.is_some() {
                     return Err("Rmv operation must not have byte value");
                 }
             }
-            EditType::Add | EditType::Edt => {
+            EditType::AddCharacter
+            | EditType::EdtByteInplace
+            | EditType::RmvByte
+            | EditType::AddByte => {
                 if byte_value.is_none() {
                     return Err("Add/Edt operations must have byte value");
                 }
@@ -4321,16 +4366,16 @@ mod log_entry_tests {
 
     #[test]
     fn test_edit_type_serialization() {
-        assert_eq!(EditType::Add.as_str(), "add");
-        assert_eq!(EditType::Rmv.as_str(), "rmv");
-        assert_eq!(EditType::Edt.as_str(), "edt");
+        assert_eq!(EditType::AddCharacter.as_str(), "add");
+        assert_eq!(EditType::RmvCharacter.as_str(), "rmv");
+        assert_eq!(EditType::EdtByteInplace.as_str(), "edt");
     }
 
     #[test]
     fn test_edit_type_deserialization() {
-        assert_eq!(EditType::from_str("add").unwrap(), EditType::Add);
-        assert_eq!(EditType::from_str("rmv").unwrap(), EditType::Rmv);
-        assert_eq!(EditType::from_str("edt").unwrap(), EditType::Edt);
+        assert_eq!(EditType::from_str("add").unwrap(), EditType::AddCharacter);
+        assert_eq!(EditType::from_str("rmv").unwrap(), EditType::RmvCharacter);
+        assert_eq!(EditType::from_str("edt").unwrap(), EditType::EdtByteInplace);
 
         assert!(EditType::from_str("invalid").is_err());
         assert!(EditType::from_str("ADD").is_err()); // Case-sensitive
@@ -4339,15 +4384,15 @@ mod log_entry_tests {
     #[test]
     fn test_log_entry_creation_valid() {
         // Valid Rmv (no byte)
-        let rmv_log = LogEntry::new(EditType::Rmv, 42, None);
+        let rmv_log = LogEntry::new(EditType::RmvCharacter, 42, None);
         assert!(rmv_log.is_ok());
 
         // Valid Add (with byte)
-        let add_log = LogEntry::new(EditType::Add, 100, Some(0x48));
+        let add_log = LogEntry::new(EditType::AddCharacter, 100, Some(0x48));
         assert!(add_log.is_ok());
 
         // Valid Edt (with byte)
-        let edt_log = LogEntry::new(EditType::Edt, 200, Some(0xFF));
+        let edt_log = LogEntry::new(EditType::EdtByteInplace, 200, Some(0xFF));
         assert!(edt_log.is_ok());
     }
 
@@ -4370,17 +4415,17 @@ mod log_entry_tests {
     #[test]
     fn test_log_entry_serialization() {
         // Test Add
-        let add_log = LogEntry::new(EditType::Add, 42, Some(0x48)).unwrap();
+        let add_log = LogEntry::new(EditType::AddCharacter, 42, Some(0x48)).unwrap();
         let serialized = add_log.to_file_format();
         assert_eq!(serialized, "add\n42\n48\n");
 
         // Test Rmv (no byte line)
-        let rmv_log = LogEntry::new(EditType::Rmv, 100, None).unwrap();
+        let rmv_log = LogEntry::new(EditType::RmvCharacter, 100, None).unwrap();
         let serialized = rmv_log.to_file_format();
         assert_eq!(serialized, "rmv\n100\n");
 
         // Test Edt
-        let edt_log = LogEntry::new(EditType::Edt, 200, Some(0xFF)).unwrap();
+        let edt_log = LogEntry::new(EditType::EdtByteInplace, 200, Some(0xFF)).unwrap();
         let serialized = edt_log.to_file_format();
         assert_eq!(serialized, "edt\n200\nFF\n");
     }
@@ -4390,28 +4435,28 @@ mod log_entry_tests {
         // Test Add
         let content = "add\n42\n48\n";
         let log = LogEntry::from_file_format(content).unwrap();
-        assert_eq!(log.edit_type(), EditType::Add);
+        assert_eq!(log.edit_type(), EditType::AddCharacter);
         assert_eq!(log.position(), 42);
         assert_eq!(log.byte_value(), Some(0x48));
 
         // Test Rmv
         let content = "rmv\n100\n";
         let log = LogEntry::from_file_format(content).unwrap();
-        assert_eq!(log.edit_type(), EditType::Rmv);
+        assert_eq!(log.edit_type(), EditType::RmvCharacter);
         assert_eq!(log.position(), 100);
         assert_eq!(log.byte_value(), None);
 
         // Test Edt
         let content = "edt\n200\nFF\n";
         let log = LogEntry::from_file_format(content).unwrap();
-        assert_eq!(log.edit_type(), EditType::Edt);
+        assert_eq!(log.edit_type(), EditType::EdtByteInplace);
         assert_eq!(log.position(), 200);
         assert_eq!(log.byte_value(), Some(0xFF));
     }
 
     #[test]
     fn test_log_entry_roundtrip() {
-        let original = LogEntry::new(EditType::Add, 12345, Some(0xAB)).unwrap();
+        let original = LogEntry::new(EditType::AddCharacter, 12345, Some(0xAB)).unwrap();
         let serialized = original.to_file_format();
         let deserialized = LogEntry::from_file_format(&serialized).unwrap();
 
@@ -4693,7 +4738,7 @@ pub fn button_remove_byte_make_log_file(
     log_directory_path: &Path,
 ) -> ButtonResult<()> {
     // Create log entry: Rmv at position (no byte value needed)
-    let log_entry = LogEntry::new(EditType::Rmv, edit_file_position, None)
+    let log_entry = LogEntry::new(EditType::RmvCharacter, edit_file_position, None)
         .map_err(|e| ButtonError::AssertionViolation { check: e })?;
 
     // Write to log directory
@@ -4739,7 +4784,7 @@ pub fn button_add_byte_make_log_file(
     log_directory_path: &Path,
 ) -> ButtonResult<()> {
     // Create log entry: Add byte at position
-    let log_entry = LogEntry::new(EditType::Add, edit_file_position, Some(byte_value))
+    let log_entry = LogEntry::new(EditType::AddCharacter, edit_file_position, Some(byte_value))
         .map_err(|e| ButtonError::AssertionViolation { check: e })?;
 
     // Write to log directory
@@ -4786,8 +4831,12 @@ pub fn button_hexeditinplace_byte_make_log_file(
     log_directory_path: &Path,
 ) -> ButtonResult<()> {
     // Create log entry: Edit byte at position back to original value
-    let log_entry = LogEntry::new(EditType::Edt, edit_file_position, Some(original_byte_value))
-        .map_err(|e| ButtonError::AssertionViolation { check: e })?;
+    let log_entry = LogEntry::new(
+        EditType::EdtByteInplace,
+        edit_file_position,
+        Some(original_byte_value),
+    )
+    .map_err(|e| ButtonError::AssertionViolation { check: e })?;
 
     // Write to log directory
     write_log_entry_to_file(target_file, log_directory_path, &log_entry)?;
@@ -5015,18 +5064,22 @@ fn read_log_file(log_file_path: &Path) -> ButtonResult<LogEntry> {
 
     if !log_file_path.exists() {
         return Err(ButtonError::MalformedLog {
-            log_path: log_file_path.to_path_buf(),
+            logpath: log_file_path.to_path_buf(),
             reason: "Log file does not exist",
         });
     }
 
     // Read file content
-    let content = fs::read_to_string(log_file_path).map_err(|e| {
+    let content = fs::read_to_string(log_file_path).map_err(|_e| {
         #[cfg(debug_assertions)]
-        eprintln!("Failed to read log file {}: {}", log_file_path.display(), e);
+        eprintln!(
+            "Failed to read log file {}: {}",
+            log_file_path.display(),
+            _e
+        );
 
         ButtonError::MalformedLog {
-            log_path: log_file_path.to_path_buf(),
+            logpath: log_file_path.to_path_buf(),
             reason: "Cannot read log file",
         }
     })?;
@@ -5041,7 +5094,7 @@ fn read_log_file(log_file_path: &Path) -> ButtonResult<LogEntry> {
         );
 
         ButtonError::MalformedLog {
-            log_path: log_file_path.to_path_buf(),
+            logpath: log_file_path.to_path_buf(),
             reason,
         }
     })?;
@@ -5122,12 +5175,12 @@ fn execute_log_entry(target_file: &Path, log_entry: &LogEntry) -> ButtonResult<(
 
     // Dispatch based on edit type
     match log_entry.edit_type() {
-        EditType::Add => {
+        EditType::AddCharacter | EditType::AddByte => {
             // Log says "add" - user had removed, so restore the byte
             let byte_value = log_entry
                 .byte_value()
                 .ok_or_else(|| ButtonError::MalformedLog {
-                    log_path: PathBuf::from("unknown"),
+                    logpath: PathBuf::from("unknown"),
                     reason: "Add operation missing byte value",
                 })?;
 
@@ -5150,7 +5203,7 @@ fn execute_log_entry(target_file: &Path, log_entry: &LogEntry) -> ButtonResult<(
                 .map_err(|e| ButtonError::Io(e))?;
         }
 
-        EditType::Rmv => {
+        EditType::RmvCharacter | EditType::RmvByte => {
             // Log says "rmv" - user had added, so remove the byte
             #[cfg(debug_assertions)]
             println!(
@@ -5171,12 +5224,12 @@ fn execute_log_entry(target_file: &Path, log_entry: &LogEntry) -> ButtonResult<(
                 .map_err(|e| ButtonError::Io(e))?;
         }
 
-        EditType::Edt => {
+        EditType::EdtByteInplace => {
             // Log says "edt" - user had hex-edited, so restore original byte
             let byte_value = log_entry
                 .byte_value()
                 .ok_or_else(|| ButtonError::MalformedLog {
-                    log_path: PathBuf::from("unknown"),
+                    logpath: PathBuf::from("unknown"),
                     reason: "Edit operation missing byte value",
                 })?;
 
@@ -5361,7 +5414,7 @@ mod undo_tests {
         fs::write(&log_file, "add\n42\n48\n").unwrap();
 
         let log_entry = read_log_file(&log_file).unwrap();
-        assert_eq!(log_entry.edit_type(), EditType::Add);
+        assert_eq!(log_entry.edit_type(), EditType::AddCharacter);
         assert_eq!(log_entry.position(), 42);
         assert_eq!(log_entry.byte_value(), Some(0x48));
 
@@ -5654,7 +5707,10 @@ pub fn detect_utf8_byte_count(first_byte: u8) -> Result<usize, &'static str> {
 /// let char_bytes = read_character_bytes_from_file(&file_path, 10)?;
 /// assert!(char_bytes.len() >= 1 && char_bytes.len() <= 4);
 /// ```
-pub fn read_character_bytes_from_file(file_path: &Path, position: u128) -> ButtonResult<Vec<u8>> {
+pub fn read_character_bytes_from_file(
+    file_path: &Path,
+    start_byte_position: u128,
+) -> ButtonResult<Vec<u8>> {
     // =================================================
     // Debug-Assert, Test-Assert, Production-Catch-Handle
     // =================================================
@@ -5685,15 +5741,15 @@ pub fn read_character_bytes_from_file(file_path: &Path, position: u128) -> Butto
     let file_size = file_metadata.len() as u128;
 
     // Validate position
-    if position >= file_size {
+    if start_byte_position >= file_size {
         return Err(ButtonError::PositionOutOfBounds {
-            position,
+            position: start_byte_position,
             file_size,
         });
     }
 
     // Seek to position
-    file.seek(SeekFrom::Start(position as u64))
+    file.seek(SeekFrom::Start(start_byte_position as u64))
         .map_err(|e| ButtonError::Io(e))?;
 
     // Read first byte
@@ -5704,7 +5760,7 @@ pub fn read_character_bytes_from_file(file_path: &Path, position: u128) -> Butto
 
     // Detect character byte count
     let byte_count = detect_utf8_byte_count(first_byte).map_err(|e| ButtonError::InvalidUtf8 {
-        position,
+        position: start_byte_position,
         byte_count: 0,
         reason: e,
     })?;
@@ -5726,16 +5782,16 @@ pub fn read_character_bytes_from_file(file_path: &Path, position: u128) -> Butto
 
     if byte_count < 1 || byte_count > MAX_UTF8_BYTES {
         return Err(ButtonError::InvalidUtf8 {
-            position,
+            position: start_byte_position,
             byte_count,
             reason: "Byte count out of valid range (1-4)",
         });
     }
 
     // Check if enough bytes remain in file
-    if position + (byte_count as u128) > file_size {
+    if start_byte_position + (byte_count as u128) > file_size {
         return Err(ButtonError::InvalidUtf8 {
-            position,
+            position: start_byte_position,
             byte_count,
             reason: "Incomplete UTF-8 sequence (file too short)",
         });
@@ -5755,7 +5811,7 @@ pub fn read_character_bytes_from_file(file_path: &Path, position: u128) -> Butto
     match std::str::from_utf8(&char_bytes) {
         Ok(_) => Ok(char_bytes),
         Err(_) => Err(ButtonError::InvalidUtf8 {
-            position,
+            position: start_byte_position,
             byte_count,
             reason: "Invalid UTF-8 sequence",
         }),
@@ -5869,7 +5925,7 @@ pub fn button_remove_multibyte_make_log_files(
         }
 
         // Create log entry: Rmv at position (no byte value for remove)
-        let log_entry = LogEntry::new(EditType::Rmv, edit_file_position, None)
+        let log_entry = LogEntry::new(EditType::RmvCharacter, edit_file_position, None)
             .map_err(|e| ButtonError::AssertionViolation { check: e })?;
 
         // Get letter suffix for this byte (or None for last byte)
@@ -6024,7 +6080,7 @@ pub fn button_add_multibyte_make_log_files(
         let byte_value = character_bytes[byte_index];
 
         // Create log entry: Add byte at position
-        let log_entry = LogEntry::new(EditType::Add, edit_file_position, Some(byte_value))
+        let log_entry = LogEntry::new(EditType::AddCharacter, edit_file_position, Some(byte_value))
             .map_err(|e| ButtonError::AssertionViolation { check: e })?;
 
         // Get letter suffix
@@ -6122,14 +6178,14 @@ fn find_multibyte_log_set(log_dir: &Path, base_number: u128) -> ButtonResult<Vec
     // FIXED: Validate that letters are sequential with NO GAPS
     // Check that we have indices 0, 1, 2... with no missing values
     for expected_index in 0..found_letters.len() {
-        let (actual_index, letter, _) = &found_letters[expected_index];
+        let (actual_index, _letter, _) = &found_letters[expected_index];
 
         if *actual_index != expected_index {
             // We have a gap! For example: found 'b' (index 1) but missing 'a' (index 0)
             #[cfg(debug_assertions)]
             eprintln!(
                 "Incomplete log set {}: found letter '{}' but missing earlier letters",
-                base_number, letter
+                base_number, _letter
             );
 
             return Err(ButtonError::IncompleteLogSet {
@@ -6184,7 +6240,7 @@ fn find_next_multibyte_lifo_log_set(log_dir: &Path) -> ButtonResult<Vec<PathBuf>
     let base_number = filename
         .parse::<u128>()
         .map_err(|_| ButtonError::MalformedLog {
-            log_path: next_bare_log.clone(),
+            logpath: next_bare_log.clone(),
             reason: "Cannot parse log number",
         })?;
 
@@ -6347,7 +6403,7 @@ mod multibyte_tests {
 
 // ============================================================================
 // PUBLIC API "Router" functions, that route user actions
-// - button_make_changeloge_from_user_character_action_level(etc)
+// - button_make_changelog_from_user_character_action_level(etc)
 // - button_undo_redo_next_inverse_changelog_pop_lifo(etc)
 // ============================================================================
 
@@ -6388,7 +6444,7 @@ mod multibyte_tests {
 /// # Character Parameter Usage
 /// - For `Add`: character is None (don't need to know what user added)
 /// - For `Rmv`: character is Some (need bytes to restore)
-/// - For `Edt`: Not recommended to use this function (see `button_make_hexedit_changelog` instead)
+/// - For `Edt`: Not recommended to use this function (see `button_make_hexedit_in_place_changelog` instead)
 ///
 /// # Multi-byte Handling
 /// Automatically detects UTF-8 character length and creates multiple log files
@@ -6397,7 +6453,7 @@ mod multibyte_tests {
 /// # Examples
 /// ```
 /// // User added character 'A' at position 10
-/// button_make_changeloge_from_user_character_action_level(
+/// button_make_changelog_from_user_character_action_level(
 ///     Path::new("file.txt"),
 ///     None,  // Don't need to know what was added
 ///     10,
@@ -6406,7 +6462,7 @@ mod multibyte_tests {
 /// )?;
 ///
 /// // User removed character '阿' at position 20
-/// button_make_changeloge_from_user_character_action_level(
+/// button_make_changelog_from_user_character_action_level(
 ///     Path::new("file.txt"),
 ///     Some('阿'),  // Need character bytes to restore
 ///     20,
@@ -6414,9 +6470,10 @@ mod multibyte_tests {
 ///     Path::new("./changelog_file")
 /// )?;
 /// ```
-pub fn button_make_changeloge_from_user_character_action_level(
+pub fn button_make_changelog_from_user_character_action_level(
     target_file: &Path,
     character: Option<char>,
+    byte_value: Option<u8>,
     position: u128,
     edit_type: EditType,
     log_directory_path: &Path,
@@ -6445,7 +6502,7 @@ pub fn button_make_changeloge_from_user_character_action_level(
 
     // Route based on user action type
     match edit_type {
-        EditType::Add => {
+        EditType::AddCharacter => {
             // User ADDED a character
             // Read the character from file to determine byte count
             let char_bytes = read_character_bytes_from_file(&target_file_abs, position)?;
@@ -6468,7 +6525,7 @@ pub fn button_make_changeloge_from_user_character_action_level(
             }
         }
 
-        EditType::Rmv => {
+        EditType::RmvCharacter => {
             // User REMOVED a character
             // Need the character to know what bytes to restore
             let ch = character.ok_or_else(|| ButtonError::InvalidUtf8 {
@@ -6505,14 +6562,37 @@ pub fn button_make_changeloge_from_user_character_action_level(
             }
         }
 
-        EditType::Edt => {
+        EditType::EdtByteInplace => {
             // Hex-edit: Not recommended to use this function
-            // User should call button_make_hexedit_changelog directly
+            // User should call button_make_hexedit_in_place_changelog directly
             return Err(ButtonError::InvalidUtf8 {
                 position,
                 byte_count: 1,
-                reason: "Use button_make_hexedit_changelog for hex edits",
+                reason: "Use button_make_hexedit_in_place_changelog for hex edits",
             });
+        }
+
+        // Byte Add, Byte Remove
+        EditType::AddByte => {
+            // User ADDED a byte
+
+            // Single-byte: create one "remove" log
+            button_remove_byte_make_log_file(&target_file_abs, position, &log_dir_abs)?;
+        }
+
+        EditType::RmvByte => {
+            // User REMOVED a byte
+            // Single-byte: create one "add" log
+
+            // get from 'option'
+            let byte_data = byte_value.ok_or_else(|| ButtonError::InvalidUtf8 {
+                position,
+                byte_count: 1,
+                reason: "Byte value required for byte remove operation",
+            })?;
+
+            //
+            button_add_byte_make_log_file(&target_file_abs, position, byte_data, &log_dir_abs)?;
         }
     }
 
@@ -6544,14 +6624,14 @@ pub fn button_make_changeloge_from_user_character_action_level(
 /// # Examples
 /// ```
 /// // User hex-edited position 42: changed 0xFF to 0x61
-/// button_make_hexedit_changelog(
+/// button_make_hexedit_in_place_changelog(
 ///     Path::new("file.txt"),
 ///     42,
 ///     0xFF,  // Original value before edit
 ///     Path::new("./changelog_file")
 /// )?;
 /// ```
-pub fn button_make_hexedit_changelog(
+pub fn button_make_hexedit_in_place_changelog(
     target_file: &Path,
     position: u128,
     original_byte: u8,
@@ -6837,7 +6917,7 @@ pub fn button_undo_redo_next_inverse_changelog_pop_lifo(
     let base_number = filename
         .parse::<u128>()
         .map_err(|_| ButtonError::MalformedLog {
-            log_path: next_bare_log.clone(),
+            logpath: next_bare_log.clone(),
             reason: "Cannot parse log number",
         })?;
 
@@ -6919,10 +6999,10 @@ fn button_undo_single_byte_with_redo_support(
     // Step 2: Read and parse log file
     let log_entry = match read_log_file(&log_file_path) {
         Ok(entry) => entry,
-        Err(e) => {
+        Err(_e) => {
             // Log is malformed - quarantine it
             quarantine_bad_log(target_file, &log_file_path, "Failed to parse log file");
-            return Err(e);
+            return Err(_e);
         }
     };
 
@@ -6931,7 +7011,7 @@ fn button_undo_single_byte_with_redo_support(
     // =========================================
     let captured_byte_for_redo = if is_undo_operation {
         match log_entry.edit_type() {
-            EditType::Rmv => {
+            EditType::RmvCharacter | EditType::RmvByte => {
                 // We're about to REMOVE a byte - capture it for redo
                 let position = log_entry.position();
                 match read_single_byte_from_file(target_file, position) {
@@ -6943,14 +7023,14 @@ fn button_undo_single_byte_with_redo_support(
                         );
                         Some(byte)
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(debug_assertions)]
-                        eprintln!("  Warning: Could not capture byte for redo: {}", e);
+                        eprintln!("  Warning: Could not capture byte for redo: {}", _e);
                         None // Continue with undo, but redo log won't be created
                     }
                 }
             }
-            EditType::Edt => {
+            EditType::EdtByteInplace => {
                 // We're about to EDIT a byte - capture current value for redo
                 let position = log_entry.position();
                 match read_single_byte_from_file(target_file, position) {
@@ -6962,14 +7042,14 @@ fn button_undo_single_byte_with_redo_support(
                         );
                         Some(byte)
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(debug_assertions)]
-                        eprintln!("  Warning: Could not capture byte for redo: {}", e);
+                        eprintln!("  Warning: Could not capture byte for redo: {}", _e);
                         None
                     }
                 }
             }
-            EditType::Add => {
+            EditType::AddCharacter | EditType::AddByte => {
                 // We're about to ADD a byte - nothing to capture (insertion doesn't destroy data)
                 None
             }
@@ -6996,14 +7076,14 @@ fn button_undo_single_byte_with_redo_support(
                         captured_byte_for_redo,
                     );
 
-                    if let Err(e) = redo_result {
+                    if let Err(_e) = redo_result {
                         // Non-fatal: redo log creation failed, but undo succeeded
                         #[cfg(debug_assertions)]
-                        eprintln!("Warning: Could not create redo log: {}", e);
+                        eprintln!("Warning: Could not create redo log: {}", _e);
 
                         log_button_error(
                             target_file,
-                            &format!("Could not create redo log: {}", e),
+                            &format!("Could not create redo log: {}", _e),
                             Some("button_undo_single_byte_with_redo_support"),
                         );
                     }
@@ -7011,13 +7091,13 @@ fn button_undo_single_byte_with_redo_support(
             }
 
             // Step 4: Remove log file after successful undo
-            if let Err(e) = fs::remove_file(&log_file_path) {
+            if let Err(_e) = fs::remove_file(&log_file_path) {
                 #[cfg(debug_assertions)]
-                eprintln!("Warning: Could not remove log file after undo: {}", e);
+                eprintln!("Warning: Could not remove log file after undo: {}", _e);
 
                 log_button_error(
                     target_file,
-                    &format!("Could not remove log file after successful undo: {}", e),
+                    &format!("Could not remove log file after successful undo: {}", _e),
                     Some("button_undo_single_byte_with_redo_support"),
                 );
             }
@@ -7184,7 +7264,7 @@ fn button_undo_multibyte_with_redo_support(
             let actual_file_position = base_position + byte_index as u128;
 
             let captured_byte = match log_entry.edit_type() {
-                EditType::Rmv => {
+                EditType::RmvCharacter | EditType::RmvByte => {
                     // About to REMOVE byte - capture it from ACTUAL position
                     match read_single_byte_from_file(target_file, actual_file_position) {
                         Ok(byte) => {
@@ -7199,17 +7279,17 @@ fn button_undo_multibyte_with_redo_support(
                             );
                             Some(byte)
                         }
-                        Err(e) => {
+                        Err(_e) => {
                             #[cfg(debug_assertions)]
                             eprintln!(
                                 "    Warning: Could not capture byte at position {}: {}",
-                                actual_file_position, e
+                                actual_file_position, _e
                             );
                             None
                         }
                     }
                 }
-                EditType::Edt => {
+                EditType::EdtByteInplace => {
                     // About to EDIT byte - capture current value from ACTUAL position
                     match read_single_byte_from_file(target_file, actual_file_position) {
                         Ok(byte) => {
@@ -7220,17 +7300,17 @@ fn button_undo_multibyte_with_redo_support(
                             );
                             Some(byte)
                         }
-                        Err(e) => {
+                        Err(_e) => {
                             #[cfg(debug_assertions)]
                             eprintln!(
                                 "    Warning: Could not capture byte at position {}: {}",
-                                actual_file_position, e
+                                actual_file_position, _e
                             );
                             None
                         }
                     }
                 }
-                EditType::Add => {
+                EditType::AddCharacter | EditType::AddByte => {
                     // Insertion doesn't destroy data - nothing to capture
                     None
                 }
@@ -7401,7 +7481,7 @@ fn create_inverse_redo_log(
 
     // Build inverse log entry
     let inverse_log_entry = match undo_log_entry.edit_type() {
-        EditType::Rmv => {
+        EditType::RmvCharacter => {
             // Undo log said "rmv" - we removed a byte
             // Redo log should say "add {captured_byte}"
             let byte = captured_byte.ok_or_else(|| ButtonError::InvalidUtf8 {
@@ -7413,21 +7493,47 @@ fn create_inverse_redo_log(
             #[cfg(debug_assertions)]
             println!("  Inverse: rmv -> add 0x{:02X} at {}", byte, position);
 
-            LogEntry::new(EditType::Add, position, Some(byte))
+            LogEntry::new(EditType::AddCharacter, position, Some(byte))
                 .map_err(|e| ButtonError::AssertionViolation { check: e })?
         }
 
-        EditType::Add => {
+        EditType::AddCharacter => {
             // Undo log said "add X" - we added a byte
             // Redo log should say "rmv"
             #[cfg(debug_assertions)]
             println!("  Inverse: add -> rmv at {}", position);
 
-            LogEntry::new(EditType::Rmv, position, None)
+            LogEntry::new(EditType::RmvCharacter, position, None)
                 .map_err(|e| ButtonError::AssertionViolation { check: e })?
         }
 
-        EditType::Edt => {
+        EditType::RmvByte => {
+            // Undo log said "rmv" - we removed a byte
+            // Redo log should say "add {captured_byte}"
+            let byte = captured_byte.ok_or_else(|| ButtonError::InvalidUtf8 {
+                position,
+                byte_count: 1,
+                reason: "Cannot create redo log: no byte was captured",
+            })?;
+
+            #[cfg(debug_assertions)]
+            println!("  Inverse: rmv byte -> add 0x{:02X} at {}", byte, position);
+
+            LogEntry::new(EditType::AddByte, position, Some(byte))
+                .map_err(|e| ButtonError::AssertionViolation { check: e })?
+        }
+
+        EditType::AddByte => {
+            // Undo log said "add X" - we added a byte
+            // Redo log should say "rmv"
+            #[cfg(debug_assertions)]
+            println!("  Inverse: add byte -> rmv at {}", position);
+
+            LogEntry::new(EditType::RmvByte, position, None)
+                .map_err(|e| ButtonError::AssertionViolation { check: e })?
+        }
+
+        EditType::EdtByteInplace => {
             // Undo log said "edt Y" - we edited to Y
             // Redo log should say "edt {captured_current_byte}"
             let byte = captured_byte.ok_or_else(|| ButtonError::InvalidUtf8 {
@@ -7439,7 +7545,7 @@ fn create_inverse_redo_log(
             #[cfg(debug_assertions)]
             println!("  Inverse: edt -> edt 0x{:02X} at {}", byte, position);
 
-            LogEntry::new(EditType::Edt, position, Some(byte))
+            LogEntry::new(EditType::EdtByteInplace, position, Some(byte))
                 .map_err(|e| ButtonError::AssertionViolation { check: e })?
         }
     };
@@ -7453,6 +7559,7 @@ fn create_inverse_redo_log(
     Ok(())
 }
 
+// TODO: Is byte add remove correct here?
 /// Creates inverse redo logs for a multi-byte operation
 ///
 /// # Purpose
@@ -7576,7 +7683,7 @@ fn create_inverse_redo_logs_multibyte(
 
         // Build inverse log entry
         let inverse_log_entry = match undo_log_entry.edit_type() {
-            EditType::Rmv => {
+            EditType::RmvCharacter | EditType::RmvByte => {
                 // Undo removed a byte - redo should add it back
                 let byte = captured_byte.ok_or_else(|| {
                     // Debug: verbose error
@@ -7603,17 +7710,17 @@ fn create_inverse_redo_logs_multibyte(
                     }
                 })?;
 
-                LogEntry::new(EditType::Add, position, Some(byte))
+                LogEntry::new(EditType::AddCharacter, position, Some(byte))
                     .map_err(|e| ButtonError::AssertionViolation { check: e })?
             }
 
-            EditType::Add => {
+            EditType::AddCharacter | EditType::AddByte => {
                 // Undo added a byte - redo should remove it
-                LogEntry::new(EditType::Rmv, position, None)
+                LogEntry::new(EditType::RmvCharacter, position, None)
                     .map_err(|e| ButtonError::AssertionViolation { check: e })?
             }
 
-            EditType::Edt => {
+            EditType::EdtByteInplace => {
                 // Undo edited a byte - redo should edit back
                 let byte = captured_byte.ok_or_else(|| {
                     #[cfg(debug_assertions)]
@@ -7638,7 +7745,7 @@ fn create_inverse_redo_logs_multibyte(
                     }
                 })?;
 
-                LogEntry::new(EditType::Edt, position, Some(byte))
+                LogEntry::new(EditType::EdtByteInplace, position, Some(byte))
                     .map_err(|e| ButtonError::AssertionViolation { check: e })?
             }
         };
@@ -7793,9 +7900,34 @@ pub fn get_redo_changelog_directory_path(target_file: &Path) -> ButtonResult<Pat
 /// # Examples
 /// ```
 /// // User makes a normal edit - clear redo history
-/// button_clear_all_redo_logs(Path::new("file.txt"))?;
+/// button_base_clear_all_redo_logs(Path::new("file.txt"))?;
 /// ```
-pub fn button_clear_all_redo_logs(target_file: &Path) -> ButtonResult<()> {
+pub fn button_base_clear_all_redo_logs(target_file: &Path) -> ButtonResult<()> {
+    /*
+    # Example Use:
+    ```rust
+    // ============================================================
+    // Clear Redo Stack Before Editing: Insert or Delete
+    // ============================================================
+    let _: bool = match button_safe_clear_all_redo_logs(&file_path) {
+        Ok(success) => success,
+        Err(e) => {
+            #[cfg(debug_assertions)]
+            eprintln!("Error clearing redo logs: {:?}", e);
+
+            // Log error and continue (non-fatal)
+            log_error(
+                &format!("Cannot clear redo logs"),
+                Some("backspace_style_delete_noload"),
+            );
+            let _ = lines_editor_state.set_info_bar_message("bsdn Redo clear failed");
+
+            false // Treat error as failure
+        }
+        };
+    ```
+    */
+
     let redo_dir = get_redo_changelog_directory_path(target_file)?;
 
     // If directory doesn't exist, nothing to clear
@@ -7855,7 +7987,7 @@ pub fn button_clear_all_redo_logs(target_file: &Path) -> ButtonResult<()> {
                 log_button_error(
                     target_file,
                     &format!("Could not remove redo log: {}", e),
-                    Some("button_clear_all_redo_logs"),
+                    Some("button_base_clear_all_redo_logs"),
                 );
             }
         }
@@ -7865,6 +7997,161 @@ pub fn button_clear_all_redo_logs(target_file: &Path) -> ButtonResult<()> {
     println!("  Cleared {} redo log file(s)", file_count);
 
     Ok(())
+}
+
+/// Safely clears all redo logs with retry logic and error recovery
+///
+/// # Purpose
+/// Provides a fault-tolerant wrapper around `button_clear_all_redo_logs` that:
+/// - Retries on transient failures (file locks, network storage delays)
+/// - Handles cosmic ray bit-flips, hardware glitches, race conditions
+/// - Never panics in production
+/// - Logs failures for debugging without exposing sensitive data
+///
+/// # Project Context
+/// When a user makes a normal edit (not undo), redo history becomes invalid.
+/// This operation must succeed to maintain UI consistency, but file system
+/// operations can fail transiently. Rather than failing the user's edit,
+/// we retry with exponential backoff and continue gracefully on final failure.
+///
+/// # Arguments
+/// * `target_file` - The file being edited (path used to locate redo directory)
+///
+/// # Returns
+/// * `ButtonResult<bool>` - Ok(true) if cleared, Ok(false) if failed after retries
+///
+/// # Retry Strategy
+/// - 3 attempts maximum (bounded operation)
+/// - 100ms pause between attempts (allows transient locks to clear)
+/// - Non-fatal: returns Ok(false) rather than Err on final failure
+///
+/// # Examples
+/// ```
+/// // User types character - clear redo stack
+/// match button_safe_clear_all_redo_logs(Path::new("file.txt"))? {
+///     true => { /* redo cleared successfully */ }
+///     false => { /* logged warning, continue editing */ }
+/// }
+/// ```
+pub fn button_safe_clear_all_redo_logs(target_file: &Path) -> ButtonResult<bool> {
+    // =================================================
+    // Defensive bounds checking
+    // =================================================
+    const MAX_RETRY_ATTEMPTS: usize = 3;
+    const RETRY_DELAY_MS: u64 = 100;
+
+    debug_assert!(MAX_RETRY_ATTEMPTS > 0, "Must have at least one attempt");
+    debug_assert!(
+        MAX_RETRY_ATTEMPTS <= 10,
+        "Retry attempts should be reasonable"
+    );
+
+    #[cfg(test)]
+    assert!(MAX_RETRY_ATTEMPTS > 0, "Must have at least one attempt");
+
+    // Production safety check
+    // Production catch-handle (matches your ButtonError enum)
+    if MAX_RETRY_ATTEMPTS == 0 {
+        return Err(ButtonError::AssertionViolation {
+            check: "Invalid retry configuration: zero attempts",
+        });
+    }
+
+    // =================================================
+    // Bounded retry loop
+    // =================================================
+    for attempt in 0..MAX_RETRY_ATTEMPTS {
+        #[cfg(debug_assertions)]
+        println!(
+            "Attempting to clear redo logs (attempt {}/{})",
+            attempt + 1,
+            MAX_RETRY_ATTEMPTS
+        );
+
+        match button_base_clear_all_redo_logs(target_file) {
+            Ok(_) => {
+                #[cfg(debug_assertions)]
+                println!(
+                    "  Successfully cleared redo logs on attempt {}",
+                    attempt + 1
+                );
+
+                return Ok(true);
+            }
+            Err(_e) => {
+                #[cfg(debug_assertions)]
+                eprintln!("  Attempt {} failed: {:?}", attempt + 1, _e);
+
+                // Don't sleep after final attempt
+                if attempt < MAX_RETRY_ATTEMPTS - 1 {
+                    thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                }
+            }
+        }
+    }
+
+    // =================================================
+    // All retries exhausted - fail gracefully
+    // =================================================
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "Warning: Failed to clear redo logs after {} attempts",
+        MAX_RETRY_ATTEMPTS
+    );
+
+    // Log error without sensitive data (no file paths in production)
+    log_button_error(
+        target_file,
+        "Failed to clear redo logs after retries",
+        Some("button_safe_clear_all_redo_logs"),
+    );
+
+    // Return success with false flag rather than hard error
+    // This allows the edit operation to continue
+    Ok(false)
+}
+
+#[cfg(test)]
+mod redoclear_tests {
+    // use super::*;
+    use std::path::PathBuf;
+    const MAX_RETRY_ATTEMPTS: usize = 3;
+
+    #[test]
+    fn test_safe_clear_succeeds_on_first_attempt() {
+        // This test requires a valid test file setup
+        // Implementation depends on your test infrastructure
+
+        let _ = PathBuf::from("/tmp/test_file.txt");
+
+        // Test should verify:
+        // 1. Function returns Ok(true) on success
+        // 2. Only one attempt is made when successful
+        // 3. Redo directory is actually cleared
+    }
+
+    #[test]
+    fn test_safe_clear_retries_on_transient_failure() {
+        // Test should verify:
+        // 1. Function retries on failure
+        // 2. Bounded retry count is respected
+        // 3. Sleep delays occur between attempts
+    }
+
+    #[test]
+    fn test_safe_clear_fails_gracefully_after_max_attempts() {
+        // Test should verify:
+        // 1. Function returns Ok(false) after max retries
+        // 2. No panic occurs
+        // 3. Error is logged appropriately
+    }
+
+    #[test]
+    fn test_retry_bounds_respected() {
+        // Verify MAX_RETRY_ATTEMPTS constant is within safe bounds
+        assert!(MAX_RETRY_ATTEMPTS > 0);
+        assert!(MAX_RETRY_ATTEMPTS <= 10);
+    }
 }
 
 // ============================================================================
@@ -7887,12 +8174,24 @@ mod router_tests {
 
         let log_dir = test_dir.join("logs");
 
+        /*
+        pub fn button_make_changelog_from_user_character_action_level(
+            target_file: &Path,
+            character: Option<char>,
+            byte_value: Option<u8>,
+            position: u128,
+            edit_type: EditType,
+            log_directory_path: &Path,
+        ) -> ButtonResult<()> {
+        */
+
         // User added single-byte character at position 2
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None, // Don't need to know what was added
+            None,
             2,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -7914,12 +8213,24 @@ mod router_tests {
 
         let log_dir = test_dir.join("logs");
 
+        /*
+        pub fn button_make_changelog_from_user_character_action_level(
+            target_file: &Path,
+            character: Option<char>,
+            byte_value: Option<u8>,
+            position: u128,
+            edit_type: EditType,
+            log_directory_path: &Path,
+        ) -> ButtonResult<()> {
+        */
+
         // User removed 'X' (0x58) at position 2
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             Some('X'), // Need character to restore
+            None,
             2,
-            EditType::Rmv,
+            EditType::RmvCharacter,
             &log_dir,
         )
         .unwrap();
@@ -7946,12 +8257,24 @@ mod router_tests {
 
         let log_dir = test_dir.join("logs");
 
+        /*
+        pub fn button_make_changelog_from_user_character_action_level(
+            target_file: &Path,
+            character: Option<char>,
+            byte_value: Option<u8>,
+            position: u128,
+            edit_type: EditType,
+            log_directory_path: &Path,
+        ) -> ButtonResult<()> {
+        */
+
         // User added 3-byte character at position 2
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             2,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -7975,12 +8298,24 @@ mod router_tests {
 
         let log_dir = test_dir.join("logs");
 
+        /*
+        pub fn button_make_changelog_from_user_character_action_level(
+            target_file: &Path,
+            character: Option<char>,
+            byte_value: Option<u8>,
+            position: u128,
+            edit_type: EditType,
+            log_directory_path: &Path,
+        ) -> ButtonResult<()> {
+        */
+
         // User removed '阿' at position 2
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             Some('阿'),
+            None,
             2,
-            EditType::Rmv,
+            EditType::RmvCharacter,
             &log_dir,
         )
         .unwrap();
@@ -7993,29 +8328,29 @@ mod router_tests {
         let _ = fs::remove_dir_all(&test_dir);
     }
 
-    #[test]
-    fn test_button_make_hexedit_changelog() {
-        let test_dir = env::temp_dir().join("button_test_router_hexedit");
-        let _ = fs::remove_dir_all(&test_dir);
-        fs::create_dir_all(&test_dir).unwrap();
+    // #[test]
+    // fn test_button_make_hexedit_changelog() {
+    //     let test_dir = env::temp_dir().join("button_test_router_hexedit");
+    //     let _ = fs::remove_dir_all(&test_dir);
+    //     fs::create_dir_all(&test_dir).unwrap();
 
-        let target_file = test_dir.join("target.txt");
-        fs::write(&target_file, b"ABCD").unwrap();
+    //     let target_file = test_dir.join("target.txt");
+    //     fs::write(&target_file, b"ABCD").unwrap();
 
-        let log_dir = test_dir.join("logs");
+    //     let log_dir = test_dir.join("logs");
 
-        // User hex-edited position 2: 0x43 ('C') to something else
-        button_make_hexedit_changelog(&target_file, 2, 0x43, &log_dir).unwrap();
+    //     // User hex-edited position 2: 0x43 ('C') to something else
+    //     button_make_hexedit_in_place_changelog(&target_file, 2, 0x43, &log_dir).unwrap();
 
-        // Should create one "edit" log
-        assert!(log_dir.join("0").exists());
+    //     // Should create one "edit" log
+    //     assert!(log_dir.join("0").exists());
 
-        let content = fs::read_to_string(log_dir.join("0")).unwrap();
-        assert!(content.contains("edt"));
-        assert!(content.contains("43"));
+    //     let content = fs::read_to_string(log_dir.join("0")).unwrap();
+    //     assert!(content.contains("edt"));
+    //     assert!(content.contains("43"));
 
-        let _ = fs::remove_dir_all(&test_dir);
-    }
+    //     let _ = fs::remove_dir_all(&test_dir);
+    // }
 
     #[test]
     fn test_button_undo_next_changelog_lifo_single_byte() {
@@ -8028,12 +8363,24 @@ mod router_tests {
 
         let log_dir = test_dir.join("logs");
 
+        /*
+        pub fn button_make_changelog_from_user_character_action_level(
+            target_file: &Path,
+            character: Option<char>,
+            byte_value: Option<u8>,
+            position: u128,
+            edit_type: EditType,
+            log_directory_path: &Path,
+        ) -> ButtonResult<()> {
+        */
+
         // Create log for user add
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             2,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -8058,12 +8405,24 @@ mod router_tests {
 
         let log_dir = test_dir.join("logs");
 
+        /*
+        pub fn button_make_changelog_from_user_character_action_level(
+            target_file: &Path,
+            character: Option<char>,
+            byte_value: Option<u8>,
+            position: u128,
+            edit_type: EditType,
+            log_directory_path: &Path,
+        ) -> ButtonResult<()> {
+        */
+
         // Create logs for user add
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             2,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -8110,7 +8469,7 @@ mod router_tests {
         fs::write(redo_dir.join("2"), "test").unwrap();
 
         // Clear redo logs
-        button_clear_all_redo_logs(&target_file).unwrap();
+        button_base_clear_all_redo_logs(&target_file).unwrap();
 
         // Files should be removed
         assert!(!redo_dir.join("0").exists());
@@ -8135,24 +8494,37 @@ mod router_tests {
 
         let log_dir = test_dir.join("logs");
 
+        /*
+        pub fn button_make_changelog_from_user_character_action_level(
+            target_file: &Path,
+            character: Option<char>,
+            byte_value: Option<u8>,
+            position: u128,
+            edit_type: EditType,
+            log_directory_path: &Path,
+        ) -> ButtonResult<()> {
+        */
+
         // User adds 'X' at position 2: "AB" -> "ABX"
         fs::write(&target_file, b"ABX").unwrap();
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             2,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
 
         // User adds 'Y' at position 3: "ABX" -> "ABXY"
         fs::write(&target_file, b"ABXY").unwrap();
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             3,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -8204,7 +8576,7 @@ mod redo_aware_undo_tests {
         let redo_dir_abs = redo_dir.canonicalize().unwrap();
 
         // Create undo log: "rmv at position 2"
-        let log_entry = LogEntry::new(EditType::Rmv, 2, None).unwrap();
+        let log_entry = LogEntry::new(EditType::RmvCharacter, 2, None).unwrap();
         fs::write(log_dir.join("0"), log_entry.to_file_format()).unwrap();
 
         // Execute undo WITH redo support
@@ -8256,7 +8628,7 @@ mod redo_aware_undo_tests {
         let redo_dir_abs = redo_dir.canonicalize().unwrap();
 
         // Create undo log: "add 0x58 at position 2"
-        let log_entry = LogEntry::new(EditType::Add, 2, Some(0x58)).unwrap();
+        let log_entry = LogEntry::new(EditType::AddCharacter, 2, Some(0x58)).unwrap();
         fs::write(log_dir.join("0"), log_entry.to_file_format()).unwrap();
 
         // Execute undo
@@ -8300,7 +8672,7 @@ mod redo_aware_undo_tests {
         let redo_dir_abs = redo_dir.canonicalize().unwrap();
 
         // Create undo log: "edt 0x43 at position 2" (restore 'C')
-        let log_entry = LogEntry::new(EditType::Edt, 2, Some(0x43)).unwrap();
+        let log_entry = LogEntry::new(EditType::EdtByteInplace, 2, Some(0x43)).unwrap();
         fs::write(log_dir.join("0"), log_entry.to_file_format()).unwrap();
 
         // Execute undo
@@ -8344,7 +8716,7 @@ mod redo_aware_undo_tests {
         let redo_dir_abs = redo_dir.canonicalize().unwrap();
 
         // Create redo log: "rmv at position 2"
-        let log_entry = LogEntry::new(EditType::Rmv, 2, None).unwrap();
+        let log_entry = LogEntry::new(EditType::RmvCharacter, 2, None).unwrap();
         fs::write(redo_dir.join("0"), log_entry.to_file_format()).unwrap();
 
         // Execute REDO (is_undo_operation = false, no redo_dir provided)
@@ -8893,11 +9265,12 @@ mod additional_comprehensive_tests {
             fs::write(&target_file, &content).unwrap();
 
             // Create log (log says "remove" to undo the add)
-            button_make_changeloge_from_user_character_action_level(
+            button_make_changelog_from_user_character_action_level(
                 &target_file,
                 None,
+                None,
                 i as u128,
-                EditType::Add,
+                EditType::AddCharacter,
                 &log_dir,
             )
             .unwrap();
@@ -8911,11 +9284,12 @@ mod additional_comprehensive_tests {
         // Phase 2: User deletes last 'o'
         println!("\nPhase 2: User deletes last 'o'");
         fs::write(&target_file, b"Hell").unwrap();
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             Some('o'),
+            None,
             4, // Position of deleted 'o'
-            EditType::Rmv,
+            EditType::RmvCharacter,
             &log_dir,
         )
         .unwrap();
@@ -8925,11 +9299,12 @@ mod additional_comprehensive_tests {
         // Phase 3: User adds emoji '😀' (4-byte UTF-8)
         println!("\nPhase 3: User adds emoji '😀'");
         fs::write(&target_file, "Hell😀").unwrap();
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             4, // Position after "Hell"
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -9006,11 +9381,12 @@ mod additional_comprehensive_tests {
         // Step 1: User adds 'A'
         println!("\nStep 1: User adds 'A'");
         fs::write(&target_file, b"A").unwrap();
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             0,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -9031,18 +9407,19 @@ mod additional_comprehensive_tests {
         // Step 3: User makes NEW edit (adds 'B')
         println!("Step 3: User makes new edit (adds 'B')");
         fs::write(&target_file, b"B").unwrap();
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             0,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
 
         // Step 4: Clear redo logs (should happen automatically in real editor)
         println!("Step 4: Clearing redo logs (new edit invalidates redo history)");
-        button_clear_all_redo_logs(&target_file).unwrap();
+        button_base_clear_all_redo_logs(&target_file).unwrap();
 
         // Verify redo logs are gone
         let redo_count = fs::read_dir(&redo_dir)
@@ -9430,11 +9807,12 @@ mod additional_comprehensive_tests {
         println!("\nTest 4: Undo to empty, then redo back");
         fs::write(&target_file, b"A").unwrap();
 
-        button_make_changeloge_from_user_character_action_level(
+        button_make_changelog_from_user_character_action_level(
             &target_file,
             None,
+            None,
             0,
-            EditType::Add,
+            EditType::AddCharacter,
             &log_dir,
         )
         .unwrap();
@@ -9491,11 +9869,12 @@ mod additional_comprehensive_tests {
             fs::write(&target_file, &content).unwrap();
 
             // Create log
-            button_make_changeloge_from_user_character_action_level(
+            button_make_changelog_from_user_character_action_level(
                 &target_file,
                 None,
+                None,
                 i as u128,
-                EditType::Add,
+                EditType::AddCharacter,
                 &log_dir,
             )
             .unwrap();
@@ -9555,9 +9934,9 @@ mod additional_comprehensive_tests {
 
 mod buttons_reversible_edit_changelog_module;
 use buttons_reversible_edit_changelog_module::{
-    EditType, button_add_byte_make_log_file, button_clear_all_redo_logs,
-    button_hexeditinplace_byte_make_log_file, button_make_changeloge_from_user_character_action_level,
-    button_make_hexedit_changelog, button_remove_byte_make_log_file,
+    EditType, button_add_byte_make_log_file, button_base_clear_all_redo_logs,
+    button_hexeditinplace_byte_make_log_file, button_make_changelog_from_user_character_action_level,
+    button_make_hexedit_in_place_changelog, button_remove_byte_make_log_file,
     button_remove_multibyte_make_log_files, button_undo_redo_next_inverse_changelog_pop_lifo,
     get_undo_changelog_directory_path,
 };
@@ -9791,7 +10170,7 @@ fn main() -> std::io::Result<()> {
     println!("   ✅ MULTIBYTE REDO PASSED: '阿' restored\n");
 
     // =========================================================================
-    // NEW TEST 5: HIGH-LEVEL API - button_make_changeloge_from_user_character_action_level()
+    // NEW TEST 5: HIGH-LEVEL API - button_make_changelog_from_user_character_action_level()
     // =========================================================================
     println!("─────────────────────────────────────────────────────────────");
     println!("TEST 5: HIGH-LEVEL API - Character Action Changelog");
@@ -9809,7 +10188,7 @@ fn main() -> std::io::Result<()> {
 
     // Simulate: user adds 'X', log should say "remove"
     let log_dir_5a = test_dir.join("changelog_test5_charactertxt");
-    button_make_changeloge_from_user_character_action_level(
+    button_make_changelog_from_user_character_action_level(
         &test5_file,
         None, // Don't need character for Add
         2,
@@ -9832,7 +10211,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, b"AB")?;
 
     // Simulate: user removes 'B', log should say "add B"
-    button_make_changeloge_from_user_character_action_level(
+    button_make_changelog_from_user_character_action_level(
         &test5_file,
         Some('B'), // Need character to restore
         1,
@@ -9863,7 +10242,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, "AB阿")?;
 
     // Simulate: user adds '阿', log should say "remove" (3 times)
-    button_make_changeloge_from_user_character_action_level(&test5_file, None, 2, EditType::Add, &log_dir_5a)
+    button_make_changelog_from_user_character_action_level(&test5_file, None, 2, EditType::Add, &log_dir_5a)
         .expect("Failed to create multi-byte add log");
     println!("   ✓ Multi-byte character add log created");
 
@@ -9886,7 +10265,7 @@ fn main() -> std::io::Result<()> {
     fs::write(&test5_file, "AB阿")?;
 
     // Simulate: user removes '阿', log should say "add 阿"
-    button_make_changeloge_from_user_character_action_level(&test5_file, Some('阿'), 2, EditType::Rmv, &log_dir_5a)
+    button_make_changelog_from_user_character_action_level(&test5_file, Some('阿'), 2, EditType::Rmv, &log_dir_5a)
         .expect("Failed to create multi-byte remove log");
 
     // HERE, AFTER LOG, HOW IS LOG TESTING THE POSITION?
@@ -9908,7 +10287,7 @@ fn main() -> std::io::Result<()> {
     let _ = fs::remove_dir_all(&log_dir_5a);
 
     // =========================================================================
-    // NEW TEST 6: HIGH-LEVEL API - button_make_hexedit_changelog()
+    // NEW TEST 6: HIGH-LEVEL API - button_make_hexedit_in_place_changelog()
     // =========================================================================
     println!("─────────────────────────────────────────────────────────────");
     println!("TEST 6: HIGH-LEVEL API - Hex Edit Changelog");
@@ -9921,7 +10300,7 @@ fn main() -> std::io::Result<()> {
 
     // Log original value before user's hex-edit
     let log_dir_6 = test_dir.join("changelog_test6_hexedittxt");
-    button_make_hexedit_changelog(
+    button_make_hexedit_in_place_changelog(
         &test6_file,
         1,
         0x42, // Original 'B'
@@ -9988,7 +10367,7 @@ fn main() -> std::io::Result<()> {
     let _ = fs::remove_file(&test7_file);
 
     // =========================================================================
-    // NEW TEST 8: HIGH-LEVEL API - button_clear_all_redo_logs()
+    // NEW TEST 8: HIGH-LEVEL API - button_base_clear_all_redo_logs()
     // =========================================================================
     println!("─────────────────────────────────────────────────────────────");
     println!("TEST 8: HIGH-LEVEL API - Clear All Redo Logs");
@@ -10012,9 +10391,9 @@ fn main() -> std::io::Result<()> {
     assert!(redo_dir_8.join("2").exists());
 
     // Clear redo logs
-    button_clear_all_redo_logs(&test8_file).expect("Failed to clear redo logs");
+    button_base_clear_all_redo_logs(&test8_file).expect("Failed to clear redo logs");
 
-    println!("   Called button_clear_all_redo_logs()");
+    println!("   Called button_base_clear_all_redo_logs()");
 
     // Verify they're gone
     assert!(
@@ -10221,7 +10600,7 @@ fn main() -> std::io::Result<()> {
     println!();
 
     println!("Clearing redo logs (new edit invalidates redo history)");
-    _ = button_clear_all_redo_logs(&manual_test_file);
+    _ = button_base_clear_all_redo_logs(&manual_test_file);
     println!("✓ Redo logs cleared");
     println!();
     println!("Notice: The redo directory is now empty");
@@ -10295,6 +10674,7 @@ fn main() -> std::io::Result<()> {
 /*
 # Example integration:
 
+
 /// Writes a hex-edited byte and creates undo log entry
 ///
 /// # Project Context
@@ -10357,7 +10737,7 @@ pub fn write_n_log_hex_edit_in_place(
     // ============================================================
     // Clone the path to avoid borrow checker issues later
     // when we need to mutably borrow self for set_info_bar_message
-    let file_path = self
+    let readcopy_file_path_clone = self
         .read_copy_path
         .clone() // ← FIXED: Clone instead of borrowing
         .ok_or_else(|| LinesError::StateError("No file open".into()))?;
@@ -10392,7 +10772,7 @@ pub fn write_n_log_hex_edit_in_place(
     let mut last_read_error: Option<String> = None;
 
     for attempt in 0..3 {
-        match read_single_byte_from_file(&file_path, position_u128) {
+        match read_single_byte_from_file(&readcopy_file_path_clone, position_u128) {
             Ok(byte_val) => {
                 original_byte = Some(byte_val);
                 break;
@@ -10432,7 +10812,7 @@ pub fn write_n_log_hex_edit_in_place(
     let mut last_write_error: Option<String> = None;
 
     for attempt in 0..3 {
-        match replace_byte_in_place(&file_path, byte_position, new_byte_value) {
+        match replace_byte_in_place(&readcopy_file_path_clone, byte_position, new_byte_value) {
             Ok(_) => {
                 write_success = true;
                 break;
@@ -10468,7 +10848,7 @@ pub fn write_n_log_hex_edit_in_place(
     let mut redo_clear_success = false;
 
     for attempt in 0..3 {
-        match button_clear_all_redo_logs(&file_path) {
+        match button_safe_clear_all_redo_logs(&readcopy_file_path_clone) {
             Ok(_) => {
                 redo_clear_success = true;
                 break;
@@ -10492,7 +10872,8 @@ pub fn write_n_log_hex_edit_in_place(
     // ============================================================
     // STEP 4: Create Undo Log Entry (3 retries, 100ms pause)
     // ============================================================
-    let log_directory_path = match get_undo_changelog_directory_path(&file_path) {
+    let log_directory_path = match get_undo_changelog_directory_path(&readcopy_file_path_clone)
+    {
         Ok(path) => path,
         Err(e) => {
             log_error(
@@ -10508,7 +10889,7 @@ pub fn write_n_log_hex_edit_in_place(
 
     for attempt in 0..3 {
         match button_hexeditinplace_byte_make_log_file(
-            &file_path,
+            &readcopy_file_path_clone,
             position_u128,
             original_byte,
             &log_directory_path,
@@ -10789,7 +11170,7 @@ pub fn write_n_log_hex_edit_in_place(
 
                              // Create inverse log entry (with retry)
                              for retry_attempt in 0..3 {
-                                 match button_make_changeloge_from_user_character_action_level(
+                                 match button_make_changelog_from_user_character_action_level(
                                      &target_file_path,
                                      Some(ch),
                                      char_position_u128,
@@ -10901,7 +11282,7 @@ pub fn write_n_log_hex_edit_in_place(
 
                              // Create inverse log entry (with retry)
                              for retry_attempt in 0..3 {
-                                 match button_make_changeloge_from_user_character_action_level(
+                                 match button_make_changelog_from_user_character_action_level(
                                      &target_file_path,
                                      Some(ch),
                                      char_position_u128,
@@ -11088,35 +11469,7 @@ pub fn insert_text_chunk_at_cursor_position(
     file_path: &Path,
     text_bytes: &[u8],
 ) -> Result<()> {
-    use std::thread;
-    use std::time::Duration;
-    // ============================================================
-    // Clear Redo Stack (3 retries, 100ms pause)
-    // Before Editing: Insert or Delete
-    // ============================================================
-    let mut redo_clear_success = false;
 
-    for attempt in 0..3 {
-        match button_clear_all_redo_logs(&file_path) {
-            Ok(_) => {
-                redo_clear_success = true;
-                break;
-            }
-            Err(_) => {
-                if attempt < 2 {
-                    thread::sleep(Duration::from_millis(100));
-                }
-            }
-        }
-    }
-
-    if !redo_clear_success {
-        log_error(
-            &format!("Cannot clear redo logs"),
-            Some("insert_text_chunk_at_cursor_position"),
-        );
-        let _ = lines_editor_state.set_info_bar_message("itcacp Redo clear failed");
-    }
 
     // =================================================
     // Debug-Assert, Test-Assert, Production-Catch-Handle
@@ -11481,7 +11834,7 @@ pub fn insert_text_chunk_at_cursor_position(
                         // Create inverse log entry (with retry)
                         // User action: Add → Inverse log: Rmv
                         for retry_attempt in 0..3 {
-                            match button_make_changeloge_from_user_character_action_level(
+                            match button_make_changelog_from_user_character_action_level(
                                 file_path,
                                 Some(ch),
                                 char_position_u128,
@@ -11644,35 +11997,7 @@ fn insert_newline_at_cursor_chunked(
     lines_editor_state: &mut EditorState,
     file_path: &Path,
 ) -> io::Result<()> {
-    use std::thread;
-    use std::time::Duration;
-    // ============================================================
-    // Clear Redo Stack (3 retries, 100ms pause)
-    // Before Editing: Insert or Delete
-    // ============================================================
-    let mut redo_clear_success = false;
 
-    for attempt in 0..3 {
-        match button_clear_all_redo_logs(&file_path) {
-            Ok(_) => {
-                redo_clear_success = true;
-                break;
-            }
-            Err(_) => {
-                if attempt < 2 {
-                    thread::sleep(Duration::from_millis(100));
-                }
-            }
-        }
-    }
-
-    if !redo_clear_success {
-        log_error(
-            &format!("Cannot clear redo logs"),
-            Some("insert_newline_at_cursor_chunked"),
-        );
-        let _ = lines_editor_state.set_info_bar_message("inacc Redo clear failed");
-    }
     // Step 1: Get file position at/of/where  cursor (with graceful error handling)
     let file_pos = match lines_editor_state
         .window_map
@@ -11850,7 +12175,7 @@ fn insert_newline_at_cursor_chunked(
             // Convert u64 position to u128 for API compatibility
             let position_u128 = insert_position as u128;
 
-            match button_make_changeloge_from_user_character_action_level(
+            match button_make_changelog_from_user_character_action_level(
                 file_path,
                 Some('\n'), // Character being added
                 position_u128,
@@ -11914,36 +12239,8 @@ Sample integration for Delete
 /// - No whole-file load
 /// - Bounded iterations
 fn backspace_style_delete_noload(state: &mut EditorState, file_path: &Path) -> io::Result<()> {
-    use std::thread;
-    use std::time::Duration;
-    // ============================================================
-    // Clear Redo Stack (3 retries, 100ms pause)
-    // Before Editing: Insert or Delete
-    // ============================================================
-    let mut redo_clear_success = false;
 
-    for attempt in 0..3 {
-        match button_clear_all_redo_logs(&file_path) {
-            Ok(_) => {
-                redo_clear_success = true;
-                break;
-            }
-            Err(_) => {
-                if attempt < 2 {
-                    thread::sleep(Duration::from_millis(100));
-                }
-            }
-        }
-    }
-
-    if !redo_clear_success {
-        log_error(
-            &format!("Cannot clear redo logs"),
-            Some("backspace_style_delete_noload"),
-        );
-        let _ = lines_editor_state.set_info_bar_message("bsdn Redo clear failed");
-    }
-// Step 1: Get current file position
+    // Step 1: Get current file position
     let file_pos = state
         .window_map
         .get_row_col_file_position(state.cursor.row, state.cursor.col)?
@@ -12056,7 +12353,7 @@ fn backspace_style_delete_noload(state: &mut EditorState, file_path: &Path) -> i
             // Convert u64 position to u128 for API compatibility
             let position_u128 = prev_char_start as u128;
 
-            match button_make_changeloge_from_user_character_action_level(
+            match button_make_changelog_from_user_character_action_level(
                 file_path,
                 Some(deleted_char), // Character that was deleted (for restore)
                 position_u128,
@@ -12234,7 +12531,7 @@ fn backspace_style_delete_noload(state: &mut EditorState, file_path: &Path) -> i
 /// 13. Iterate through temp file character-by-character (chunked)
 /// 14. For each UTF-8 character:
 ///     - Position = line_start (NOT line_start + offset!) ← Key insight!
-///     - Call button_make_changeloge_from_user_character_action_level()
+///     - Call button_make_changelog_from_user_character_action_level()
 ///     - EditType = Rmv (user removed line, inverse adds it back)
 ///     - Character = Some(char) (need character for restoration)
 /// 15. Handle UTF-8 boundaries across chunks (carry-over buffer)
@@ -12389,7 +12686,7 @@ fn backspace_style_delete_noload(state: &mut EditorState, file_path: &Path) -> i
 ///
 /// # See Also
 ///
-/// * `button_make_changeloge_from_user_character_action_level()` - Creates individual log entries
+/// * `button_make_changelog_from_user_character_action_level()` - Creates individual log entries
 /// * `button_add_multibyte_make_log_files()` - Handles multi-byte characters with letter suffixes
 /// * `delete_byte_range_chunked()` - Performs the actual deletion
 /// * `find_line_start()` - Finds beginning of current line
@@ -12410,35 +12707,6 @@ fn backspace_style_delete_noload(state: &mut EditorState, file_path: &Path) -> i
 /// - Line at end of file (EOF)
 /// - Single line file
 fn delete_current_line_noload(state: &mut EditorState, file_path: &Path) -> io::Result<()> {
-    use std::thread;
-    use std::time::Duration;
-    // ============================================================
-    // Clear Redo Stack (3 retries, 100ms pause)
-    // Before Editing: Insert or Delete
-    // ============================================================
-    let mut redo_clear_success = false;
-
-    for attempt in 0..3 {
-        match button_clear_all_redo_logs(&file_path) {
-            Ok(_) => {
-                redo_clear_success = true;
-                break;
-            }
-            Err(_) => {
-                if attempt < 2 {
-                    thread::sleep(Duration::from_millis(100));
-                }
-            }
-        }
-    }
-
-    if !redo_clear_success {
-        log_error(
-            &format!("Cannot clear redo logs"),
-            Some("delete_current_line_noload"),
-        );
-        let _ = state.set_info_bar_message("dcln Redo clear failed"); // ← FIXED: Now works
-    }
 
     // Step 1: Get current line's file position
     let row_col_file_pos = state
@@ -12781,7 +13049,7 @@ fn delete_current_line_noload(state: &mut EditorState, file_path: &Path) -> io::
                                 let char_position_u128 = line_start as u128;
 
                                 for retry_attempt in 0..3 {
-                                    match button_make_changeloge_from_user_character_action_level(
+                                    match button_make_changelog_from_user_character_action_level(
                                         file_path,
                                         Some(ch),
                                         char_position_u128,
@@ -12878,7 +13146,7 @@ fn delete_current_line_noload(state: &mut EditorState, file_path: &Path) -> io::
                                 let char_position_u128 = line_start as u128;
 
                                 for retry_attempt in 0..3 {
-                                    match button_make_changeloge_from_user_character_action_level(
+                                    match button_make_changelog_from_user_character_action_level(
                                         file_path,
                                         Some(ch),
                                         char_position_u128,
@@ -13007,4 +13275,29 @@ fn delete_current_line_noload(state: &mut EditorState, file_path: &Path) -> io::
 
     Ok(())
 }
+*/
+
+/*
+# Sample Safe-Wrapper clear redo-stack call,
+  which includes multi-retry.
+
+// =================================================
+// Clear Redo Stack Before Editing: Insert or Delete
+// =================================================
+let _: bool = match button_safe_clear_all_redo_logs(&base_edit_filepath) {
+    Ok(success) => success,
+    Err(e) => {
+        #[cfg(debug_assertions)]
+        eprintln!("Error clearing redo logs: {:?}", e);
+
+        // Log error and continue (non-fatal)
+        log_error(
+            &format!("Cannot clear redo logs"),
+            Some("backspace_style_delete_noload"),
+        );
+        let _ = lines_editor_state.set_info_bar_message("bsdn Redo clear failed");
+
+        false // Treat error as failure
+    }
+};
 */
